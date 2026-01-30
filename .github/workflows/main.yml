@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "*"
+  merge_group:
+    branches:
+      - "main"
+
+permissions:
+  # Required to manage and delete caches.
+  actions: write
+  # Default permission for checking out code.
+  contents: read
+
+concurrency:
+  # Cancel any previous workflows if they are from a PR or push.
+  group: ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # If you change this please also update GO_VERSION in Makefile.
+  GO_VERSION: 1.25.3
+
+jobs:
+  ########################
+  # static checks
+  ########################
+  static-checks:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      ########################
+      # Check code format
+      ########################
+      - name: Check code format
+        run: |
+          go install github.com/rinchsan/gosimports/cmd/gosimports@latest
+          make fmt-check
+
+      - name: Check go modules tidiness
+        run: make tidy-module-check
+
+  ########################
+  # lint code
+  ########################
+  lint:
+    name: Lint code
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=10m
+
+  ########################
+  # cross compilation
+  ########################
+  cross-compile:
+    name: Cross compilation
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux-amd64
+            sys: linux-amd64
+          - name: linux-arm64
+            sys: linux-arm64
+          - name: darwin-amd64
+            sys: darwin-amd64
+          - name: darwin-arm64
+            sys: darwin-arm64
+          - name: windows-amd64
+            sys: windows-amd64
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: Build release for ${{ matrix.name }}
+        run: make release sys="${{ matrix.sys }}"
+
+  ########################
+  # run unit tests
+  ########################
+  unit-test:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        unit_type:
+          - unit-cover
+          - unit-race
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: Run ${{ matrix.unit_type }}
+        run: make ${{ matrix.unit_type }}
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        if: matrix.unit_type == 'unit-cover'
+        continue-on-error: true
+        with:
+          file: coverage.txt
+          flag-name: 'unit'
+          format: 'golang'
+          parallel: true
+
+  ########################
+  # run integration tests
+  ########################
+  itest:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: Run integration tests
+        run: make itest
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itest-artifacts-${{ github.run_id }}
+          path: |
+            **/test-artifacts/
+          retention-days: 5
+          if-no-files-found: ignore

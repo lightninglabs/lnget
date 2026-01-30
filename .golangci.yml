@@ -1,0 +1,186 @@
+run:
+  go: "1.25.3"
+
+  # Abort after 10 minutes.
+  timeout: 10m
+
+  build-tags:
+    - itest
+
+linters-settings:
+  errorlint:
+    # Check for incorrect fmt.Errorf error wrapping.
+    errorf: true
+
+  gofmt:
+    # simplify code: gofmt with `-s` option, true by default.
+    simplify: true
+
+  tagliatelle:
+    case:
+      rules:
+        json: snake
+
+  whitespace:
+    multi-func: true
+    multi-if: true
+
+  gosec:
+    excludes:
+      - G402 # Look for bad TLS connection settings.
+      - G306 # Poor file permissions used when writing to a new file.
+      - G601 # Implicit memory aliasing in for loop.
+      - G115 # Integer overflow in conversion.
+
+  staticcheck:
+    checks: ["-SA1019"]
+
+  funlen:
+    # Checks the number of lines in a function.
+    lines: 200
+    # Checks the number of statements in a function.
+    statements: 80
+
+  dupl:
+    # Tokens count to trigger issue.
+    threshold: 200
+
+  nestif:
+    # Minimal complexity of if statements to report.
+    min-complexity: 10
+
+  nlreturn:
+    # Size of the block (including return statement that is still "OK")
+    # so no return split required.
+    block-size: 3
+
+  lll:
+    # Max line length, lines longer will be reported.
+    line-length: 80
+    # Tab width in spaces.
+    tab-width: 8
+
+linters:
+  enable-all: true
+  disable:
+    # Global variables are used in many places throughout the code base.
+    - gochecknoglobals
+
+    # We want to allow short variable names.
+    - varnamelen
+
+    # We want to allow TODOs.
+    - godox
+
+    # Instances of table driven tests that don't pre-allocate shouldn't trigger
+    # the linter.
+    - prealloc
+
+    # Init functions are used by loggers throughout the codebase.
+    - gochecknoinits
+
+    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
+    - bodyclose
+    - contextcheck
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - tparallel
+    - unparam
+    - wastedassign
+
+    # Disable gofumpt as it has weird behavior regarding formatting multiple
+    # lines for a function which is in conflict with our contribution
+    # guidelines.
+    - gofumpt
+
+    # Disable whitespace linter as it has conflict rules against our
+    # contribution guidelines.
+    - wsl
+
+    # Allow using default empty values.
+    - exhaustruct
+
+    # Allow exiting case select faster by putting everything in default.
+    - exhaustive
+
+    # Allow tests to be put in the same package.
+    - testpackage
+
+    # Don't run the cognitive related linters.
+    - gocognit
+    - gocyclo
+    - maintidx
+    - cyclop
+
+    # Allow customized interfaces to be returned from functions.
+    - ireturn
+
+    # Disable too many blank identifiers check.
+    - dogsled
+
+    # We don't wrap errors.
+    - wrapcheck
+
+    # Allow dynamic errors.
+    - err113
+
+    # We use ErrXXX instead.
+    - errname
+
+    # Disable nil check to allow returning multiple nil values.
+    - nilnil
+
+    # We often split tests into separate test functions.
+    - thelper
+
+    # The linter is too aggressive and doesn't add much value.
+    - mnd
+
+    # Some of the tests cannot be parallelized.
+    - paralleltest
+
+    # New linters that we haven't had time to address yet.
+    - testifylint
+    - perfsprint
+    - inamedparam
+    - copyloopvar
+    - tagalign
+    - protogetter
+    - revive
+    - depguard
+    - gosmopolitan
+    - intrange
+    - goconst
+
+    # Deprecated linters that have been replaced by newer ones.
+    - tenv
+
+issues:
+  exclude-rules:
+    # Exclude gosec from running for tests so that tests with weak randomness
+    # (math/rand) will pass the linter.
+    - path: _test\.go
+      linters:
+        - gosec
+        - funlen
+        - revive
+        # Allow duplications in tests so it's easier to follow a single unit
+        # test.
+        - dupl
+
+    - path: mock*
+      linters:
+        - revive
+        - forcetypeassert
+
+    - path: test*
+      linters:
+        - gosec
+        - funlen
+
+    # Allow fmt.Printf() in commands.
+    - path: cmd/.*/main\.go
+      linters:
+        - forbidigo

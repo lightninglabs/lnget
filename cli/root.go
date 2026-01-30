@@ -1,0 +1,304 @@
+// Package cli provides the command-line interface for lnget.
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/lightninglabs/lnget/build"
+	"github.com/lightninglabs/lnget/client"
+	"github.com/lightninglabs/lnget/config"
+	"github.com/lightninglabs/lnget/l402"
+	"github.com/lightninglabs/lnget/ln"
+	"github.com/spf13/cobra"
+)
+
+// flags holds the CLI flags.
+var flags struct {
+	// Output file path.
+	output string
+
+	// Resume partial download.
+	resume bool
+
+	// Quiet mode.
+	quiet bool
+
+	// No progress bar.
+	noProgress bool
+
+	// Custom headers.
+	headers []string
+
+	// POST data.
+	data string
+
+	// HTTP method.
+	method string
+
+	// Follow redirects.
+	followRedirects bool
+
+	// Max redirects.
+	maxRedirects int
+
+	// Max cost in satoshis.
+	maxCost int64
+
+	// Max routing fee in satoshis.
+	maxFee int64
+
+	// Payment timeout.
+	paymentTimeout time.Duration
+
+	// Don't pay automatically.
+	noPay bool
+
+	// JSON output.
+	jsonOutput bool
+
+	// Human output.
+	humanOutput bool
+
+	// Verbose output.
+	verbose bool
+
+	// Config file path.
+	configFile string
+
+	// Allow insecure connections.
+	insecure bool
+}
+
+// NewRootCmd creates the main lnget command.
+func NewRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "lnget [flags] <url>",
+		Short: "Download files with automatic L402 Lightning payment",
+		Long: `lnget is a curl/wget-like CLI that handles L402 Lightning payments
+transparently. When a server returns a 402 Payment Required response with an
+L402 challenge, lnget automatically pays the invoice and retries the request.
+
+Tokens are cached per-domain, so subsequent requests to the same domain reuse
+the existing token without additional payments.`,
+		Example: `  # Download a file
+  lnget https://api.example.com/data.json
+
+  # Download with output file
+  lnget -o output.json https://api.example.com/data.json
+
+  # Pipe to stdout for agent consumption
+  lnget -q https://api.example.com/data.json | jq .
+
+  # Set max payment amount (in sats)
+  lnget --max-cost 1000 https://api.example.com/expensive-data
+
+  # Resume interrupted download
+  lnget -c https://api.example.com/large-file.zip`,
+		Version: build.Version(),
+		Args:    cobra.ExactArgs(1),
+		RunE:    runGet,
+	}
+
+	// wget/curl-like flags.
+	cmd.Flags().StringVarP(&flags.output, "output", "o", "",
+		"Write output to file")
+	cmd.Flags().BoolVarP(&flags.resume, "continue", "c", false,
+		"Resume partial download")
+	cmd.Flags().BoolVarP(&flags.quiet, "quiet", "q", false,
+		"Quiet mode (suppress all output except data)")
+	cmd.Flags().BoolVar(&flags.noProgress, "no-progress", false,
+		"Disable progress bar")
+	cmd.Flags().StringSliceVarP(&flags.headers, "header", "H", nil,
+		"Custom headers (can be repeated)")
+	cmd.Flags().StringVarP(&flags.data, "data", "d", "",
+		"POST data")
+	cmd.Flags().StringVarP(&flags.method, "request", "X", "GET",
+		"HTTP method")
+	cmd.Flags().BoolVarP(&flags.followRedirects, "location", "L", true,
+		"Follow redirects")
+	cmd.Flags().IntVar(&flags.maxRedirects, "max-redirects", 10,
+		"Maximum redirects to follow")
+
+	// L402-specific flags.
+	cmd.Flags().Int64Var(&flags.maxCost, "max-cost", 1000,
+		"Maximum invoice amount in satoshis to pay automatically")
+	cmd.Flags().Int64Var(&flags.maxFee, "max-fee", 10,
+		"Maximum routing fee in satoshis")
+	cmd.Flags().DurationVar(&flags.paymentTimeout, "payment-timeout",
+		60*time.Second, "Payment timeout")
+	cmd.Flags().BoolVar(&flags.noPay, "no-pay", false,
+		"Don't pay invoices automatically")
+
+	// Output format flags.
+	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false,
+		"Force JSON output")
+	cmd.Flags().BoolVar(&flags.humanOutput, "human", false,
+		"Force human-readable output")
+	cmd.Flags().BoolVarP(&flags.verbose, "verbose", "v", false,
+		"Verbose output")
+
+	// Config flags.
+	cmd.Flags().StringVar(&flags.configFile, "config", "",
+		"Config file path")
+
+	// Security flags.
+	cmd.Flags().BoolVarP(&flags.insecure, "insecure", "k", false,
+		"Allow insecure TLS connections")
+
+	// Add subcommands.
+	cmd.AddCommand(NewConfigCmd())
+	cmd.AddCommand(NewTokensCmd())
+	cmd.AddCommand(NewLNCmd())
+
+	return cmd
+}
+
+// runGet executes the main download command.
+func runGet(cmd *cobra.Command, args []string) error {
+	url := args[0]
+
+	// Load configuration.
+	cfg, err := config.LoadConfig(flags.configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Apply flag overrides.
+	if flags.maxCost > 0 {
+		cfg.L402.MaxCostSats = flags.maxCost
+	}
+	if flags.maxFee > 0 {
+		cfg.L402.MaxFeeSats = flags.maxFee
+	}
+	if flags.paymentTimeout > 0 {
+		cfg.L402.PaymentTimeout = flags.paymentTimeout
+	}
+	if flags.noPay {
+		cfg.L402.AutoPay = false
+	}
+	if flags.jsonOutput {
+		cfg.Output.Format = config.OutputFormatJSON
+	}
+	if flags.humanOutput {
+		cfg.Output.Format = config.OutputFormatHuman
+	}
+	if flags.quiet || flags.noProgress {
+		cfg.Output.Progress = false
+	}
+	if flags.insecure {
+		cfg.HTTP.AllowInsecure = true
+	}
+	if flags.maxRedirects > 0 {
+		cfg.HTTP.MaxRedirects = flags.maxRedirects
+	}
+
+	// Validate configuration.
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	// Ensure directories exist.
+	if err := config.EnsureDirectories(cfg); err != nil {
+		return err
+	}
+
+	// Create the token store.
+	store, err := l402.NewFileStore(cfg.Tokens.Dir)
+	if err != nil {
+		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Create the Lightning backend.
+	backend, err := createBackend(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create LN backend: %w", err)
+	}
+
+	ctx := context.Background()
+
+	// Start the backend.
+	if err := backend.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start LN backend: %w", err)
+	}
+	defer backend.Stop()
+
+	// Create the HTTP client.
+	httpClient, err := client.NewClient(&client.ClientConfig{
+		Config:  cfg,
+		Backend: backend,
+		Store:   store,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	// Determine output destination.
+	outputPath := flags.output
+	if outputPath == "" && !flags.quiet {
+		// Default to filename from URL.
+		outputPath = filepath.Base(url)
+		if outputPath == "" || outputPath == "/" || outputPath == "." {
+			outputPath = "output"
+		}
+	}
+
+	// If outputting to a file, use download mode.
+	if outputPath != "" {
+		progress := client.NewProgress(flags.quiet || flags.noProgress)
+
+		err = httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
+			Resume:   flags.resume,
+			Progress: progress,
+		})
+		if err != nil {
+			return err
+		}
+
+		progress.Finish()
+
+		if !flags.quiet {
+			fmt.Fprintf(os.Stderr, "Downloaded to: %s\n", outputPath)
+		}
+
+		return nil
+	}
+
+	// Quiet mode: output to stdout.
+	resp, err := httpClient.Get(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Copy response to stdout.
+	_, err = io.Copy(os.Stdout, resp.Body)
+
+	return err
+}
+
+// createBackend creates the appropriate Lightning backend based on config.
+func createBackend(cfg *config.Config) (ln.Backend, error) {
+	switch cfg.LN.Mode {
+	case config.LNModeLND:
+		return ln.NewLNDBackend(&ln.LNDConfig{
+			Host:         cfg.LN.LND.Host,
+			TLSCertPath:  cfg.LN.LND.TLSCertPath,
+			MacaroonPath: cfg.LN.LND.MacaroonPath,
+			Network:      cfg.LN.LND.Network,
+		}), nil
+
+	case config.LNModeLNC:
+		return nil, fmt.Errorf("LNC backend not yet implemented")
+
+	case config.LNModeNeutrino:
+		return nil, fmt.Errorf("Neutrino backend not yet implemented")
+
+	default:
+		return nil, fmt.Errorf("unknown LN backend mode: %s", cfg.LN.Mode)
+	}
+}
