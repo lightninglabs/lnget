@@ -224,7 +224,7 @@ func newTokensClearCmd() *cobra.Command {
 				fmt.Printf("This will remove %d token(s). Continue? [y/N] ",
 					len(domains))
 				var confirm string
-				fmt.Scanln(&confirm)
+				_, _ = fmt.Scanln(&confirm)
 				if confirm != "y" && confirm != "Y" {
 					fmt.Println("Aborted.")
 					return nil

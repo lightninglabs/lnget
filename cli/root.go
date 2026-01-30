@@ -225,7 +225,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if err := backend.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start LN backend: %w", err)
 	}
-	defer backend.Stop()
+	defer func() {
+		_ = backend.Stop()
+	}()
 
 	// Create the HTTP client.
 	httpClient, err := client.NewClient(&client.ClientConfig{
@@ -273,7 +275,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Copy response to stdout.
 	_, err = io.Copy(os.Stdout, resp.Body)

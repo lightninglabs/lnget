@@ -110,17 +110,18 @@ func (p *Progress) render() {
 
 	bar := ""
 	for i := 0; i < barWidth; i++ {
-		if i < filled {
+		switch {
+		case i < filled:
 			bar += "="
-		} else if i == filled {
+		case i == filled:
 			bar += ">"
-		} else {
+		default:
 			bar += " "
 		}
 	}
 
 	// Print the progress line.
-	fmt.Fprintf(p.output, "\r%s/%s [%s] %5.1f%% %s eta %s",
+	_, _ = fmt.Fprintf(p.output, "\r%s/%s [%s] %5.1f%% %s eta %s",
 		currentStr, totalStr, bar, percent, speedStr, eta)
 }
 
@@ -132,12 +133,14 @@ func (p *Progress) Finish() {
 	if !p.quiet {
 		// Print final progress with newline.
 		elapsed := time.Since(p.startTime)
-		avgSpeed := formatBytes(int64(float64(p.current) /
+		avgSpeed := formatBytes(int64(float64(p.current)/
 			elapsed.Seconds())) + "/s"
-		fmt.Fprintf(p.output, "\r%s downloaded in %s (%s avg)        \n",
+		_, _ = fmt.Fprintf(
+			p.output, "\r%s downloaded in %s (%s avg)        \n",
 			formatBytes(p.current),
 			formatDuration(elapsed),
-			avgSpeed)
+			avgSpeed,
+		)
 	}
 }
 
@@ -163,8 +166,7 @@ func formatBytes(bytes int64) string {
 func formatDuration(d time.Duration) string {
 	d = d.Round(time.Second)
 	m := d / time.Minute
-	d -= m * time.Minute
-	s := d / time.Second
+	s := (d % time.Minute) / time.Second
 
 	return fmt.Sprintf("%02d:%02d", m, s)
 }

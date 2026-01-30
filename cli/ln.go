@@ -7,7 +7,6 @@ import (
 
 	"github.com/lightninglabs/lnget/client"
 	"github.com/lightninglabs/lnget/config"
-	"github.com/lightninglabs/lnget/ln"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +64,7 @@ func newLNStatusCmd() *cobra.Command {
 						status.BalanceSat = info.Balance
 					}
 
-					backend.Stop()
+					_ = backend.Stop()
 				}
 			}
 
@@ -126,7 +125,9 @@ func newLNInfoCmd() *cobra.Command {
 			if err := backend.Start(ctx); err != nil {
 				return fmt.Errorf("failed to connect: %w", err)
 			}
-			defer backend.Stop()
+			defer func() {
+				_ = backend.Stop()
+			}()
 
 			info, err := backend.GetInfo(ctx)
 			if err != nil {
@@ -152,14 +153,4 @@ func newLNInfoCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// createBackendLNC creates an LNC backend (placeholder).
-func createBackendLNC(cfg *config.Config) (ln.Backend, error) {
-	return nil, fmt.Errorf("LNC backend not yet implemented")
-}
-
-// createBackendNeutrino creates a Neutrino backend (placeholder).
-func createBackendNeutrino(cfg *config.Config) (ln.Backend, error) {
-	return nil, fmt.Errorf("Neutrino backend not yet implemented")
 }

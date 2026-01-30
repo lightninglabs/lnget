@@ -20,9 +20,6 @@ type L402Transport struct {
 	// Handler is the L402 handler for payment coordination.
 	Handler *l402.Handler
 
-	// mu protects against concurrent payments to the same domain.
-	mu sync.Mutex
-
 	// domainLocks provides per-domain locking to allow concurrent requests
 	// to different domains while serializing requests to the same domain.
 	domainLocks map[string]*sync.Mutex
@@ -73,7 +70,7 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// Token didn't work (maybe expired), close the body and
 		// continue to payment flow.
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Make the initial request without a token.
@@ -89,7 +86,7 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// Close the 402 response body since we'll retry after payment.
 	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Handle the L402 challenge with per-domain locking.
 	lock := t.getDomainLock(domain)

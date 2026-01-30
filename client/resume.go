@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,6 +33,7 @@ func GetResumeInfo(filePath string) (*ResumeInfo, error) {
 				CanResume: false,
 			}, nil
 		}
+
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
@@ -43,8 +45,11 @@ func GetResumeInfo(filePath string) (*ResumeInfo, error) {
 }
 
 // CheckServerResumeSupport checks if a server supports resume for a URL.
-func CheckServerResumeSupport(url string, client *http.Client) (bool, int64, error) {
-	req, err := http.NewRequest(http.MethodHead, url, nil)
+func CheckServerResumeSupport(
+	ctx context.Context, url string, client *http.Client,
+) (bool, int64, error) {
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return false, 0, err
 	}
@@ -53,7 +58,9 @@ func CheckServerResumeSupport(url string, client *http.Client) (bool, int64, err
 	if err != nil {
 		return false, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Check Accept-Ranges header.
 	acceptRanges := resp.Header.Get("Accept-Ranges")

@@ -88,9 +88,9 @@ func (l *LNDBackend) PayInvoice(ctx context.Context, invoice string,
 
 	// Create the payment request with fee limit.
 	req := lndclient.SendPaymentRequest{
-		Invoice:         invoice,
-		Timeout:         timeout,
-		MaxFeeMsat:      lnwire.MilliSatoshi(maxFeeSat * 1000),
+		Invoice:          invoice,
+		Timeout:          timeout,
+		MaxFeeMsat:       lnwire.MilliSatoshi(maxFeeSat * 1000),
 		AllowSelfPayment: false,
 	}
 
@@ -118,7 +118,7 @@ func (l *LNDBackend) PayInvoice(ctx context.Context, invoice string,
 
 				return &PaymentResult{
 					Preimage:       preimage,
-					AmountPaid:     lnwire.MilliSatoshi(payReq.Value * 1000),
+					AmountPaid:     payReq.Value,
 					RoutingFeePaid: status.Fee,
 				}, nil
 			}

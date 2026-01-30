@@ -59,7 +59,12 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	})
 
 	// Create the base HTTP transport with optional insecure mode.
-	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("unexpected default transport type")
+	}
+	baseTransport := defaultTransport.Clone()
+
 	if cfg.Config.HTTP.AllowInsecure {
 		baseTransport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
@@ -81,6 +86,7 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 			return fmt.Errorf("stopped after %d redirects",
 				cfg.Config.HTTP.MaxRedirects)
 		}
+
 		return nil
 	}
 
@@ -104,7 +110,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 	return c.Do(req)
 }
 
-// Do performs an HTTP request.
+// Do performs an HTTP request. The caller must close the response body.
 func (c *Client) Do(req *http.Request) (*Response, error) {
 	// Set user agent.
 	if req.Header.Get("User-Agent") == "" {
@@ -152,7 +158,9 @@ func (c *Client) Download(ctx context.Context, url string,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Check status code.
 	if resp.StatusCode != http.StatusOK &&
@@ -169,11 +177,13 @@ func (c *Client) Download(ctx context.Context, url string,
 		flags |= os.O_TRUNC
 	}
 
-	file, err := os.OpenFile(outputPath, flags, 0644)
+	file, err := os.OpenFile(outputPath, flags, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open output file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	// Create progress writer if progress is enabled.
 	var writer io.Writer = file

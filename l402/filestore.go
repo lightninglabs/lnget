@@ -1,6 +1,7 @@
 package l402
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,6 +75,7 @@ func (f *FileStore) AllTokens() (map[string]*Token, error) {
 		if os.IsNotExist(err) {
 			return tokens, nil
 		}
+
 		return nil, fmt.Errorf("failed to read token store: %w", err)
 	}
 
@@ -88,9 +90,10 @@ func (f *FileStore) AllTokens() (map[string]*Token, error) {
 		// Try to read the token.
 		token, err := f.GetToken(sanitizedDomain)
 		if err != nil {
-			if err == ErrNoToken {
+			if errors.Is(err, ErrNoToken) {
 				continue
 			}
+
 			return nil, err
 		}
 
@@ -149,6 +152,7 @@ func (f *FileStore) ListDomains() ([]string, error) {
 		if os.IsNotExist(err) {
 			return domains, nil
 		}
+
 		return nil, fmt.Errorf("failed to read token store: %w", err)
 	}
 

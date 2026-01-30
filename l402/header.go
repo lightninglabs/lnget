@@ -110,6 +110,7 @@ func IsL402Challenge(resp *http.Response) bool {
 
 	// Check if it starts with L402 or LSAT (case insensitive).
 	authLower := strings.ToLower(authHeader)
+
 	return strings.HasPrefix(authLower, "l402 ") ||
 		strings.HasPrefix(authLower, "lsat ")
 }

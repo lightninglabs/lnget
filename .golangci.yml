@@ -1,67 +1,16 @@
+version: "2"
+
 run:
   go: "1.25.3"
-
-  # Abort after 10 minutes.
   timeout: 10m
 
-  build-tags:
-    - itest
-
-linters-settings:
-  errorlint:
-    # Check for incorrect fmt.Errorf error wrapping.
-    errorf: true
-
-  gofmt:
-    # simplify code: gofmt with `-s` option, true by default.
-    simplify: true
-
-  tagliatelle:
-    case:
-      rules:
-        json: snake
-
-  whitespace:
-    multi-func: true
-    multi-if: true
-
-  gosec:
-    excludes:
-      - G402 # Look for bad TLS connection settings.
-      - G306 # Poor file permissions used when writing to a new file.
-      - G601 # Implicit memory aliasing in for loop.
-      - G115 # Integer overflow in conversion.
-
-  staticcheck:
-    checks: ["-SA1019"]
-
-  funlen:
-    # Checks the number of lines in a function.
-    lines: 200
-    # Checks the number of statements in a function.
-    statements: 80
-
-  dupl:
-    # Tokens count to trigger issue.
-    threshold: 200
-
-  nestif:
-    # Minimal complexity of if statements to report.
-    min-complexity: 10
-
-  nlreturn:
-    # Size of the block (including return statement that is still "OK")
-    # so no return split required.
-    block-size: 3
-
-  lll:
-    # Max line length, lines longer will be reported.
-    line-length: 80
-    # Tab width in spaces.
-    tab-width: 8
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 linters:
-  enable-all: true
+  default: all
   disable:
     # Global variables are used in many places throughout the code base.
     - gochecknoglobals
@@ -78,22 +27,6 @@ linters:
 
     # Init functions are used by loggers throughout the codebase.
     - gochecknoinits
-
-    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
-    - bodyclose
-    - contextcheck
-    - nilerr
-    - noctx
-    - rowserrcheck
-    - sqlclosecheck
-    - tparallel
-    - unparam
-    - wastedassign
-
-    # Disable gofumpt as it has weird behavior regarding formatting multiple
-    # lines for a function which is in conflict with our contribution
-    # guidelines.
-    - gofumpt
 
     # Disable whitespace linter as it has conflict rules against our
     # contribution guidelines.
@@ -154,20 +87,76 @@ linters:
     - intrange
     - goconst
 
-    # Deprecated linters that have been replaced by newer ones.
-    - tenv
+    # Line length is handled by code review.
+    - lll
+
+    # bodyclose often false positives for methods returning responses.
+    - bodyclose
+
+    # musttag is too strict for initial development.
+    - musttag
+
+    # Allow files without nolint justifications.
+    - nolintlint
+
+    # Allow fmt.Print in CLI code.
+    - forbidigo
+
+    # Allow replace directives in go.mod (needed for lnd protobuf).
+    - gomoddirectives
+
+    # Function ordering is not critical.
+    - funcorder
+
+  settings:
+    errorlint:
+      errorf: true
+
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+
+    whitespace:
+      multi-func: true
+      multi-if: true
+
+    gosec:
+      excludes:
+        - G402
+        - G306
+        - G601
+        - G115
+        - G304
+
+    staticcheck:
+      checks:
+        - "-SA1019"
+
+    funlen:
+      lines: 200
+      statements: 80
+
+    dupl:
+      threshold: 200
+
+    nestif:
+      min-complexity: 10
+
+    nlreturn:
+      block-size: 3
+
+    lll:
+      line-length: 80
+      tab-width: 8
 
 issues:
   exclude-rules:
-    # Exclude gosec from running for tests so that tests with weak randomness
-    # (math/rand) will pass the linter.
     - path: _test\.go
       linters:
         - gosec
         - funlen
         - revive
-        # Allow duplications in tests so it's easier to follow a single unit
-        # test.
         - dupl
 
     - path: mock*
@@ -180,7 +169,6 @@ issues:
         - gosec
         - funlen
 
-    # Allow fmt.Printf() in commands.
     - path: cmd/.*/main\.go
       linters:
         - forbidigo
