@@ -51,7 +51,8 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		reqWithToken := req.Clone(req.Context())
 
 		// Attach the token to the request.
-		if err := l402.SetHeader(&reqWithToken.Header, token); err != nil {
+		err = l402.SetHeader(&reqWithToken.Header, token)
+		if err != nil {
 			return nil, fmt.Errorf("failed to set L402 header: %w",
 				err)
 		}
@@ -90,6 +91,7 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// Handle the L402 challenge with per-domain locking.
 	lock := t.getDomainLock(domain)
+
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -111,12 +113,14 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // retryWithToken clones the request and adds the L402 token.
+//
+//nolint:whitespace
 func (t *L402Transport) retryWithToken(req *http.Request,
 	token *l402.Token) (*http.Response, error) {
-
 	reqWithToken := req.Clone(req.Context())
 
-	if err := l402.SetHeader(&reqWithToken.Header, token); err != nil {
+	err := l402.SetHeader(&reqWithToken.Header, token)
+	if err != nil {
 		return nil, fmt.Errorf("failed to set L402 header: %w", err)
 	}
 
@@ -127,6 +131,7 @@ func (t *L402Transport) retryWithToken(req *http.Request,
 			return nil, fmt.Errorf("failed to get request body: %w",
 				err)
 		}
+
 		reqWithToken.Body = body
 	}
 
@@ -150,9 +155,10 @@ func (t *L402Transport) getDomainLock(domain string) *sync.Mutex {
 
 // WrappedTransport returns a transport that wraps an existing one with L402
 // support. This is useful for adding L402 support to an existing http.Client.
+//
+//nolint:whitespace
 func WrappedTransport(client *http.Client,
 	handler *l402.Handler) http.RoundTripper {
-
 	base := client.Transport
 	if base == nil {
 		base = http.DefaultTransport

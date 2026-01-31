@@ -45,10 +45,10 @@ func GetResumeInfo(filePath string) (*ResumeInfo, error) {
 }
 
 // CheckServerResumeSupport checks if a server supports resume for a URL.
-func CheckServerResumeSupport(
-	ctx context.Context, url string, client *http.Client,
-) (bool, int64, error) {
-
+//
+//nolint:whitespace
+func CheckServerResumeSupport(ctx context.Context, url string,
+	client *http.Client) (bool, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return false, 0, err
@@ -58,6 +58,7 @@ func CheckServerResumeSupport(
 	if err != nil {
 		return false, 0, err
 	}
+
 	defer func() {
 		_ = resp.Body.Close()
 	}()

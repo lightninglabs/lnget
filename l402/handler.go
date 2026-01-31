@@ -95,9 +95,9 @@ func (h *Handler) GetTokenForDomain(domain string) (*Token, error) {
 // HandleChallenge processes an L402 challenge response and pays the invoice.
 func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 	domain string) (*Token, error) {
-
 	// Parse the challenge from the response.
 	authHeader := resp.Header.Get(HeaderWWWAuthenticate)
+
 	challenge, err := ParseChallenge(authHeader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse L402 challenge: %w",
@@ -113,7 +113,9 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 	// Create a pending token. We construct it directly since aperture's
 	// tokenFromChallenge is unexported.
 	mac := &macaroon.Macaroon{}
-	if err := mac.UnmarshalBinary(challenge.Macaroon); err != nil {
+
+	err = mac.UnmarshalBinary(challenge.Macaroon)
+	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal macaroon: %w", err)
 	}
 
@@ -123,7 +125,8 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 	}
 
 	// Store the pending token before payment to handle interruptions.
-	if err := h.store.StorePending(domain, token); err != nil {
+	err = h.store.StorePending(domain, token)
+	if err != nil {
 		return nil, fmt.Errorf("failed to store pending token: %w", err)
 	}
 
@@ -146,7 +149,8 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 	token.RoutingFeePaid = result.RoutingFeePaid
 
 	// Store the paid token.
-	if err := h.store.StoreToken(domain, token); err != nil {
+	err = h.store.StoreToken(domain, token)
+	if err != nil {
 		// This is a serious error - we paid but couldn't store the
 		// token. Log the preimage so the user can recover.
 		return nil, fmt.Errorf("CRITICAL: payment succeeded but "+

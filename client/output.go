@@ -32,7 +32,7 @@ func (o *Output) SetWriter(w io.Writer) {
 }
 
 // Result outputs a result in the configured format.
-func (o *Output) Result(data interface{}) error {
+func (o *Output) Result(data any) error {
 	if o.format == config.OutputFormatJSON {
 		return o.JSON(data)
 	}
@@ -41,7 +41,7 @@ func (o *Output) Result(data interface{}) error {
 }
 
 // JSON outputs data as JSON.
-func (o *Output) JSON(data interface{}) error {
+func (o *Output) JSON(data any) error {
 	encoder := json.NewEncoder(o.writer)
 	encoder.SetIndent("", "  ")
 
@@ -58,7 +58,7 @@ func (o *Output) Human(message string) error {
 // Error outputs an error in the configured format.
 func (o *Output) Error(err error) error {
 	if o.format == config.OutputFormatJSON {
-		return o.JSON(map[string]interface{}{
+		return o.JSON(map[string]any{
 			"error":   true,
 			"message": err.Error(),
 		})

@@ -135,8 +135,14 @@ type LNCConfig struct {
 	// SessionsDir is the directory for storing sessions.
 	SessionsDir string `mapstructure:"sessions_dir"`
 
-	// Passphrase is the pairing passphrase (can also be set via env).
-	Passphrase string `mapstructure:"passphrase"`
+	// PairingPhrase is the LNC pairing phrase from the node.
+	PairingPhrase string `mapstructure:"pairing_phrase"`
+
+	// SessionID is the ID of an existing session to resume.
+	SessionID string `mapstructure:"session_id"`
+
+	// Ephemeral indicates the session should not be persisted.
+	Ephemeral bool `mapstructure:"ephemeral"`
 
 	// DevServer skips TLS verification for development.
 	DevServer bool `mapstructure:"dev_server"`
@@ -227,7 +233,8 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 
 	// Read config file if it exists.
-	if err := v.ReadInConfig(); err != nil {
+	err := v.ReadInConfig()
+	if err != nil {
 		// It's okay if the config file doesn't exist.
 		var configNotFound viper.ConfigFileNotFoundError
 		if !errors.As(err, &configNotFound) {
@@ -241,7 +248,8 @@ func LoadConfig(configPath string) (*Config, error) {
 	v.AutomaticEnv()
 
 	// Unmarshal into config struct.
-	if err := v.Unmarshal(cfg); err != nil {
+	err = v.Unmarshal(cfg)
+	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}
 
@@ -290,7 +298,8 @@ func EnsureDirectories(cfg *Config) error {
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0700); err != nil {
+		err := os.MkdirAll(dir, 0700)
+		if err != nil {
 			return fmt.Errorf("failed to create directory %s: %w",
 				dir, err)
 		}

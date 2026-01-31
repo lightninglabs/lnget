@@ -172,38 +172,48 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if flags.maxCost > 0 {
 		cfg.L402.MaxCostSats = flags.maxCost
 	}
+
 	if flags.maxFee > 0 {
 		cfg.L402.MaxFeeSats = flags.maxFee
 	}
+
 	if flags.paymentTimeout > 0 {
 		cfg.L402.PaymentTimeout = flags.paymentTimeout
 	}
+
 	if flags.noPay {
 		cfg.L402.AutoPay = false
 	}
+
 	if flags.jsonOutput {
 		cfg.Output.Format = config.OutputFormatJSON
 	}
+
 	if flags.humanOutput {
 		cfg.Output.Format = config.OutputFormatHuman
 	}
+
 	if flags.quiet || flags.noProgress {
 		cfg.Output.Progress = false
 	}
+
 	if flags.insecure {
 		cfg.HTTP.AllowInsecure = true
 	}
+
 	if flags.maxRedirects > 0 {
 		cfg.HTTP.MaxRedirects = flags.maxRedirects
 	}
 
 	// Validate configuration.
-	if err := cfg.Validate(); err != nil {
+	err = cfg.Validate()
+	if err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	// Ensure directories exist.
-	if err := config.EnsureDirectories(cfg); err != nil {
+	err = config.EnsureDirectories(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -222,9 +232,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	// Start the backend.
-	if err := backend.Start(ctx); err != nil {
+	err = backend.Start(ctx)
+	if err != nil {
 		return fmt.Errorf("failed to start LN backend: %w", err)
 	}
+
 	defer func() {
 		_ = backend.Stop()
 	}()
@@ -275,6 +287,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() {
 		_ = resp.Body.Close()
 	}()
@@ -297,7 +310,20 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 		}), nil
 
 	case config.LNModeLNC:
-		return nil, fmt.Errorf("LNC backend not yet implemented")
+		// Create session store for LNC.
+		sessionStore, err := ln.NewSessionStore(cfg.LN.LNC.SessionsDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create session store: %w",
+				err)
+		}
+
+		return ln.NewLNCBackend(&ln.LNCConfig{
+			PairingPhrase: cfg.LN.LNC.PairingPhrase,
+			MailboxAddr:   cfg.LN.LNC.MailboxAddr,
+			SessionStore:  sessionStore,
+			SessionID:     cfg.LN.LNC.SessionID,
+			Ephemeral:     cfg.LN.LNC.Ephemeral,
+		})
 
 	case config.LNModeNeutrino:
 		return nil, fmt.Errorf("Neutrino backend not yet implemented")

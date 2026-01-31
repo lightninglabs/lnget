@@ -73,9 +73,10 @@ func (l *LNDBackend) Stop() error {
 }
 
 // PayInvoice pays the given invoice using lnd.
+//
+//nolint:whitespace
 func (l *LNDBackend) PayInvoice(ctx context.Context, invoice string,
 	maxFeeSat int64, timeout time.Duration) (*PaymentResult, error) {
-
 	if l.client == nil {
 		return nil, fmt.Errorf("lnd client not connected")
 	}

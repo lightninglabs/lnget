@@ -63,13 +63,22 @@ func DomainFromURL(u *url.URL) string {
 func SanitizeDomain(domain string) string {
 	// Replace colons with underscores for filesystem compatibility.
 	result := make([]byte, 0, len(domain))
+
 	for i := 0; i < len(domain); i++ {
 		c := domain[i]
 		if c == ':' {
 			result = append(result, '_')
-		} else if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' {
 
+			continue
+		}
+
+		// Check if character is alphanumeric or allowed punctuation.
+		isLower := c >= 'a' && c <= 'z'
+		isUpper := c >= 'A' && c <= 'Z'
+		isDigit := c >= '0' && c <= '9'
+		isAllowed := c == '.' || c == '-' || c == '_'
+
+		if isLower || isUpper || isDigit || isAllowed {
 			result = append(result, c)
 		}
 	}
@@ -89,5 +98,9 @@ var zeroPreimage lntypes.Preimage
 
 // IsPending returns true if the token payment is still pending (no preimage).
 func IsPending(token *Token) bool {
+	if token == nil {
+		return true
+	}
+
 	return token.Preimage == zeroPreimage
 }

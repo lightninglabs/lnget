@@ -73,7 +73,8 @@ This will create ~/.lnget/config.yaml with default settings.`,
 			configPath := config.ConfigFilePath()
 
 			// Check if config already exists.
-			if _, err := os.Stat(configPath); err == nil {
+			_, err := os.Stat(configPath)
+			if err == nil {
 				return fmt.Errorf("config file already exists: %s",
 					configPath)
 			}
@@ -82,7 +83,8 @@ This will create ~/.lnget/config.yaml with default settings.`,
 			cfg := config.DefaultConfig()
 
 			// Ensure directory exists.
-			if err := config.EnsureDirectories(cfg); err != nil {
+			err = config.EnsureDirectories(cfg)
+			if err != nil {
 				return err
 			}
 
@@ -93,7 +95,8 @@ This will create ~/.lnget/config.yaml with default settings.`,
 			}
 
 			// Write config file.
-			if err := os.WriteFile(configPath, data, 0600); err != nil {
+			err = os.WriteFile(configPath, data, 0600)
+			if err != nil {
 				return fmt.Errorf("failed to write config: %w", err)
 			}
 

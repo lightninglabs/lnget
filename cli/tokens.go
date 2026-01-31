@@ -57,6 +57,7 @@ func newTokensListCmd() *cobra.Command {
 
 			// Build token info list.
 			var infos []client.TokenInfo
+
 			for domain, token := range tokens {
 				info := client.TokenInfo{
 					Domain:      domain,
@@ -70,11 +71,14 @@ func newTokensListCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			if flags.jsonOutput || (!flags.humanOutput &&
-				cfg.Output.Format == config.OutputFormatJSON) {
+			jsonOutput := flags.jsonOutput ||
+				(!flags.humanOutput &&
+					cfg.Output.Format == config.OutputFormatJSON)
 
+			if jsonOutput {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
+
 				return encoder.Encode(infos)
 			}
 
@@ -84,6 +88,7 @@ func newTokensListCmd() *cobra.Command {
 				if info.Pending {
 					status = "pending"
 				}
+
 				fmt.Printf("%s (%s)\n", info.Domain, status)
 				fmt.Printf("  Payment Hash: %s\n", info.PaymentHash[:16]+"...")
 				fmt.Printf("  Amount: %d sats\n", info.AmountSat)
@@ -133,11 +138,14 @@ func newTokensShowCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			if flags.jsonOutput || (!flags.humanOutput &&
-				cfg.Output.Format == config.OutputFormatJSON) {
+			jsonOutput := flags.jsonOutput ||
+				(!flags.humanOutput &&
+					cfg.Output.Format == config.OutputFormatJSON)
 
+			if jsonOutput {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
+
 				return encoder.Encode(info)
 			}
 
@@ -146,6 +154,7 @@ func newTokensShowCmd() *cobra.Command {
 			if info.Pending {
 				status = "pending"
 			}
+
 			fmt.Printf("Domain: %s\n", info.Domain)
 			fmt.Printf("Status: %s\n", status)
 			fmt.Printf("Payment Hash: %s\n", info.PaymentHash)
@@ -179,7 +188,8 @@ func newTokensRemoveCmd() *cobra.Command {
 					err)
 			}
 
-			if err := store.RemoveToken(domain); err != nil {
+			err = store.RemoveToken(domain)
+			if err != nil {
 				return fmt.Errorf("failed to remove token: %w", err)
 			}
 
@@ -223,7 +233,9 @@ func newTokensClearCmd() *cobra.Command {
 			if !force {
 				fmt.Printf("This will remove %d token(s). Continue? [y/N] ",
 					len(domains))
+
 				var confirm string
+
 				_, _ = fmt.Scanln(&confirm)
 				if confirm != "y" && confirm != "Y" {
 					fmt.Println("Aborted.")
@@ -232,7 +244,8 @@ func newTokensClearCmd() *cobra.Command {
 			}
 
 			for _, domain := range domains {
-				if err := store.RemoveToken(domain); err != nil {
+				err := store.RemoveToken(domain)
+				if err != nil {
 					fmt.Printf("Failed to remove token for %s: %v\n",
 						domain, err)
 				}

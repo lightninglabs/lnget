@@ -63,6 +63,7 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("unexpected default transport type")
 	}
+
 	baseTransport := defaultTransport.Clone()
 
 	if cfg.Config.HTTP.AllowInsecure {
@@ -129,9 +130,10 @@ func (c *Client) Do(req *http.Request) (*Response, error) {
 }
 
 // Download downloads a URL to a file.
-func (c *Client) Download(ctx context.Context, url string,
-	outputPath string, opts *DownloadOptions) error {
-
+//
+//nolint:whitespace
+func (c *Client) Download(ctx context.Context, url string, outputPath string,
+	opts *DownloadOptions) error {
 	if opts == nil {
 		opts = &DownloadOptions{}
 	}
@@ -158,14 +160,16 @@ func (c *Client) Download(ctx context.Context, url string,
 	if err != nil {
 		return err
 	}
+
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
 	// Check status code.
-	if resp.StatusCode != http.StatusOK &&
-		resp.StatusCode != http.StatusPartialContent {
+	validStatus := resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusPartialContent
 
+	if !validStatus {
 		return fmt.Errorf("server returned %s", resp.Status)
 	}
 
@@ -181,12 +185,14 @@ func (c *Client) Download(ctx context.Context, url string,
 	if err != nil {
 		return fmt.Errorf("failed to open output file: %w", err)
 	}
+
 	defer func() {
 		_ = file.Close()
 	}()
 
 	// Create progress writer if progress is enabled.
 	var writer io.Writer = file
+
 	if opts.Progress != nil && c.cfg.Output.Progress {
 		opts.Progress.SetTotal(resp.ContentLength)
 		writer = io.MultiWriter(file, opts.Progress)
@@ -204,6 +210,7 @@ func (c *Client) Download(ctx context.Context, url string,
 // Response wraps an http.Response with additional lnget functionality.
 type Response struct {
 	*http.Response
+
 	output *Output
 }
 
@@ -222,9 +229,10 @@ type lnPayer struct {
 }
 
 // PayInvoice implements l402.Payer.
+//
+//nolint:whitespace
 func (p *lnPayer) PayInvoice(ctx context.Context, invoice string,
 	maxFeeSat int64, timeout time.Duration) (*l402.PaymentResult, error) {
-
 	result, err := p.backend.PayInvoice(ctx, invoice, maxFeeSat, timeout)
 	if err != nil {
 		return nil, err

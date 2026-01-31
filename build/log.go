@@ -39,11 +39,9 @@ func (t LogType) String() string {
 
 // NewSubLogger constructs a new subsystem logger. For lnget, we use a simple
 // stdout-based logger.
-func NewSubLogger(subsystem string,
-	genSubLogger func(string) btclog.Logger) btclog.Logger {
-
-	if genSubLogger != nil {
-		return genSubLogger(subsystem)
+func NewSubLogger(subsystem string, gen func(string) btclog.Logger) btclog.Logger {
+	if gen != nil {
+		return gen(subsystem)
 	}
 
 	// Default to stdout logging.

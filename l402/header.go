@@ -56,6 +56,7 @@ func ParseChallenge(header string) (*Challenge, error) {
 
 	// Decode the macaroon from base64.
 	macBase64 := matches[2]
+
 	macBytes, err := base64.StdEncoding.DecodeString(macBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode macaroon: %w", err)
@@ -63,7 +64,9 @@ func ParseChallenge(header string) (*Challenge, error) {
 
 	// Validate the macaroon can be unmarshaled.
 	mac := &macaroon.Macaroon{}
-	if err := mac.UnmarshalBinary(macBytes); err != nil {
+
+	err = mac.UnmarshalBinary(macBytes)
+	if err != nil {
 		return nil, fmt.Errorf("invalid macaroon: %w", err)
 	}
 

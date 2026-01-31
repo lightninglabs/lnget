@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -72,6 +73,7 @@ func (p *Progress) render() {
 	if now.Sub(p.lastUpdate) < 100*time.Millisecond {
 		return
 	}
+
 	p.lastUpdate = now
 
 	// Calculate progress percentage.
@@ -82,6 +84,7 @@ func (p *Progress) render() {
 
 	// Calculate speed.
 	elapsed := time.Since(p.startTime)
+
 	var speed float64
 	if elapsed > 0 {
 		speed = float64(p.current) / elapsed.Seconds()
@@ -94,6 +97,7 @@ func (p *Progress) render() {
 
 	// Calculate ETA.
 	var eta string
+
 	if p.total > 0 && speed > 0 {
 		remaining := float64(p.total-p.current) / speed
 		eta = formatDuration(time.Duration(remaining) * time.Second)
@@ -103,22 +107,23 @@ func (p *Progress) render() {
 
 	// Build progress bar.
 	barWidth := 30
-	filled := int(percent / 100 * float64(barWidth))
-	if filled > barWidth {
-		filled = barWidth
-	}
 
-	bar := ""
-	for i := 0; i < barWidth; i++ {
+	filled := min(int(percent/100*float64(barWidth)), barWidth)
+
+	var barBuilder strings.Builder
+
+	for i := range barWidth {
 		switch {
 		case i < filled:
-			bar += "="
+			barBuilder.WriteByte('=')
 		case i == filled:
-			bar += ">"
+			barBuilder.WriteByte('>')
 		default:
-			bar += " "
+			barBuilder.WriteByte(' ')
 		}
 	}
+
+	bar := barBuilder.String()
 
 	// Print the progress line.
 	_, _ = fmt.Fprintf(p.output, "\r%s/%s [%s] %5.1f%% %s eta %s",

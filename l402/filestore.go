@@ -25,7 +25,8 @@ var _ Store = (*FileStore)(nil)
 // structure in the provided base directory.
 func NewFileStore(baseDir string) (*FileStore, error) {
 	// Create the base directory if it doesn't exist.
-	if err := os.MkdirAll(baseDir, 0700); err != nil {
+	err := os.MkdirAll(baseDir, 0700)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create token store dir: %w",
 			err)
 	}
@@ -110,7 +111,8 @@ func (f *FileStore) RemoveToken(domain string) error {
 	domainDir := f.domainDir(domain)
 
 	// Remove the entire domain directory.
-	if err := os.RemoveAll(domainDir); err != nil {
+	err := os.RemoveAll(domainDir)
+	if err != nil {
 		return fmt.Errorf("failed to remove token: %w", err)
 	}
 
@@ -163,7 +165,9 @@ func (f *FileStore) ListDomains() ([]string, error) {
 
 		// Check if there's actually a token in this directory.
 		sanitizedDomain := entry.Name()
-		if _, err := f.GetToken(sanitizedDomain); err == nil {
+
+		_, err := f.GetToken(sanitizedDomain)
+		if err == nil {
 			domains = append(domains, GetOriginalDomain(sanitizedDomain))
 		}
 	}
