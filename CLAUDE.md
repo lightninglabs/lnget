@@ -123,10 +123,12 @@ during normal operation**.
 7. Store paid token with preimage
 8. Retry request with `Authorization: L402 <macaroon>:<preimage>` header
 
-### Key Types (from aperture/l402)
-- `l402.Token` - Stores macaroon, payment hash, preimage, amounts
-- `l402.Store` - Interface for token persistence
-- `l402.FileStore` - File-based token storage implementation
+### Key Types
+- `l402.Token` - Stores macaroon, payment hash, preimage, amounts (wraps aperture)
+- `l402.Store` - Interface for per-domain token persistence
+- `l402.FileStore` - File-based implementation at `~/.lnget/tokens/<domain>/`
+- `ln.Backend` - Interface for Lightning invoice payment
+- `client.L402Transport` - http.RoundTripper that handles L402 flow
 
 ### HTTP Client Considerations
 - Use `http.Client` with custom `Transport` or wrapper for L402 handling
@@ -193,13 +195,13 @@ Maintain familiar wget semantics where applicable:
 - `lnget --max-cost <sats>` - Maximum satoshis to pay automatically
 
 ### L402-specific Flags
-- `--lnd-host` - lnd gRPC host
-- `--lnd-macaroon-path` - Path to lnd macaroon
-- `--lnd-tls-cert-path` - Path to lnd TLS certificate
 - `--max-cost` - Maximum invoice amount to pay automatically (default: 1000 sats)
-- `--max-routing-fee` - Maximum routing fee (default: 10 sats)
-- `--token-dir` - Directory to store L402 tokens
-- `--allow-insecure` - Allow non-TLS connections
+- `--max-fee` - Maximum routing fee (default: 10 sats)
+- `--no-pay` - Don't auto-pay invoices (just show 402 response)
+
+### Output Flags
+- `--human` - Human-readable output (default: JSON for agent consumption)
+- `-q, --quiet` - Quiet mode (no progress output)
 
 ### Exit Codes
 - `0` - Success
@@ -227,23 +229,81 @@ Maintain familiar wget semantics where applicable:
 
 ```
 lnget/
-├── cmd/
-│   └── lnget/
-│       └── main.go           # CLI entrypoint and flag parsing
+├── cmd/lnget/
+│   └── main.go              # CLI entrypoint
+├── cli/
+│   ├── root.go              # Main download command (wget/curl-like flags)
+│   ├── config.go            # lnget config subcommand (show, set, path, init)
+│   ├── tokens.go            # lnget tokens subcommand (list, show, remove, clear)
+│   └── ln.go                # lnget ln subcommand (status, info)
 ├── client/
-│   ├── client.go             # HTTP client with L402 support
-│   ├── client_test.go
-│   ├── transport.go          # Custom http.RoundTripper for L402
-│   └── transport_test.go
+│   ├── client.go            # HTTP client orchestration with L402 support
+│   ├── transport.go         # L402Transport (http.RoundTripper)
+│   ├── progress.go          # Terminal progress bars
+│   ├── resume.go            # Range header resume support
+│   └── output.go            # JSON output formatting
 ├── config/
-│   ├── config.go             # Configuration loading and validation
-│   └── config_test.go
+│   ├── config.go            # Config struct and YAML loading
+│   └── defaults.go          # Default configuration values
+├── l402/
+│   ├── store.go             # Per-domain Store interface
+│   ├── filestore.go         # FileStore at ~/.lnget/tokens/<domain>/
+│   ├── token.go             # Token struct and serialization
+│   ├── handler.go           # Challenge detection and payment coordination
+│   └── header.go            # Header parsing (WWW-Authenticate, Authorization)
+├── ln/
+│   ├── interface.go         # Backend interface for invoice payment
+│   └── lnd.go               # External lnd connection via lndclient
+├── build/
+│   ├── version.go           # Version info (git tag, commit, date)
+│   └── log.go               # btclog-based structured logging
+├── tools/
+│   └── tools.go             # Build tool dependencies
 ├── development_guidelines.md # Detailed style guide
 ├── CLAUDE.md                 # This file
 ├── Makefile
 ├── go.mod
 └── go.sum
 ```
+
+## Architecture Overview
+
+### Design Pattern: "Functional Core, Imperative Shell"
+
+The codebase follows a clear separation:
+
+**Core packages (pure/testable):**
+- `l402/` - Token handling, storage, challenge parsing
+- `client/` - HTTP logic, L402 transport layer
+- `config/` - Configuration management
+
+**Shell packages (side effects):**
+- `cmd/lnget/` - CLI entry point
+- `cli/` - Cobra command definitions
+- `ln/` - Lightning backend implementations
+
+### Key Components
+
+1. **L402Transport (client/transport.go)** - Custom `http.RoundTripper` that:
+   - Intercepts HTTP responses
+   - Detects 402 challenges with L402 headers
+   - Coordinates payment via LN backend
+   - Retries requests with paid tokens
+
+2. **Per-Domain Store (l402/)** - Token storage:
+   - Tokens stored at `~/.lnget/tokens/<domain>/`
+   - Tracks pending vs paid state
+   - Automatic token reuse on subsequent requests
+
+3. **LN Backend Interface (ln/interface.go)** - Abstraction over:
+   - External lnd (implemented via lndclient)
+   - LNC mode (planned)
+   - Embedded neutrino (planned)
+
+4. **Streaming Client (client/client.go)** - Full HTTP client with:
+   - Progress tracking for downloads
+   - Resume support via Range headers
+   - Pipe-friendly output modes
 
 ## Additional Resources
 
