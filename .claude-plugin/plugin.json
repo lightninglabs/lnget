@@ -1,0 +1,12 @@
+{
+  "name": "lnget",
+  "description": "Agentic commerce toolkit for the Lightning Network. Skills for running lnd nodes, fetching L402-protected resources with lnget, and hosting paid API endpoints with Aperture.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Lightning Labs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lightninglabs/lnget"
+  }
+}
