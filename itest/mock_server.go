@@ -4,7 +4,10 @@
 package itest
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lightninglabs/aperture/l402"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"gopkg.in/macaroon.v2"
 )
@@ -230,15 +234,40 @@ func (s *MockServer) return402(w http.ResponseWriter, endpoint *EndpointConfig) 
 	_, _ = w.Write([]byte(`{"error":"payment required"}`))
 }
 
-// generateMacaroon generates a macaroon for an L402 challenge.
-func (s *MockServer) generateMacaroon(endpoint *EndpointConfig) (*macaroon.Macaroon, error) {
-	// Create a simple macaroon with a random-ish identifier.
-	// The identifier encodes the payment hash for validation.
-	identifier := fmt.Sprintf("test-macaroon-%d", endpoint.PriceSats)
+// generateMacaroon generates a macaroon for an L402 challenge. The
+// macaroon identifier is encoded in aperture's binary format so the
+// client's ParseChallenge (which calls l402.DecodeIdentifier) can
+// extract the payment hash.
+func (s *MockServer) generateMacaroon(
+	endpoint *EndpointConfig) (*macaroon.Macaroon, error) {
+
+	// Derive a deterministic payment hash from the invoice string so
+	// the same endpoint always produces the same hash.
+	payHash := sha256.Sum256([]byte(endpoint.Invoice))
+
+	var tokenID l402.TokenID
+	if _, err := rand.Read(tokenID[:]); err != nil {
+		return nil, fmt.Errorf("failed to generate token ID: %w",
+			err)
+	}
+
+	// Encode the identifier in aperture's binary wire format:
+	// [2 bytes version][32 bytes payment hash][32 bytes token ID].
+	id := &l402.Identifier{
+		Version:     0,
+		PaymentHash: lntypes.Hash(payHash),
+		TokenID:     tokenID,
+	}
+
+	var idBuf bytes.Buffer
+	if err := l402.EncodeIdentifier(&idBuf, id); err != nil {
+		return nil, fmt.Errorf("failed to encode identifier: %w",
+			err)
+	}
 
 	mac, err := macaroon.New(
 		[]byte("test-root-key"),
-		[]byte(identifier),
+		idBuf.Bytes(),
 		"test-location",
 		macaroon.LatestVersion,
 	)
