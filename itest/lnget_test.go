@@ -213,27 +213,31 @@ func TestMaxCostExceeded(t *testing.T) {
 	}
 }
 
-// TestMultipleDomains tests that tokens are isolated per domain.
+// TestMultipleDomains tests that tokens are isolated per domain. Because
+// the token store keys tokens by host:port, we spin up two separate mock
+// servers on different ports so the client treats them as distinct domains.
 func TestMultipleDomains(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	// Create and start the test harness.
-	h := NewHarness(t)
-	if err := h.Start(ctx); err != nil {
-		t.Fatalf("failed to start harness: %v", err)
+	// Create and start two independent harnesses (different ports).
+	// Raise the max cost so the 5000 sat invoice isn't rejected; this
+	// test is about per-domain token isolation, not cost limits.
+	h1 := NewHarness(t)
+	h1.SetMaxCost(10000)
+	if err := h1.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness 1: %v", err)
 	}
-	defer h.Stop()
+	defer h1.Stop()
 
-	// Create a client.
-	client, err := h.NewClient()
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	h2 := NewHarness(t)
+	if err := h2.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness 2: %v", err)
 	}
+	defer h2.Stop()
 
-	// Set up two protected endpoints on the same server (different paths
-	// act as different "domains" for testing).
-	h.MockServer().SetEndpoint("/domain1/resource", &EndpointConfig{
+	// Configure protected endpoints on each server.
+	h1.MockServer().SetEndpoint("/resource", &EndpointConfig{
 		Protected:    true,
 		PriceSats:    50,
 		ResponseBody: `{"domain":"one"}`,
@@ -241,38 +245,49 @@ func TestMultipleDomains(t *testing.T) {
 		Invoice:      testInvoice100,
 	})
 
-	h.MockServer().SetEndpoint("/domain2/resource", &EndpointConfig{
+	h2.MockServer().SetEndpoint("/resource", &EndpointConfig{
 		Protected:    true,
 		PriceSats:    75,
 		ResponseBody: `{"domain":"two"}`,
 		ContentType:  "application/json",
-		Invoice:      testInvoice5000, // Different invoice.
+		Invoice:      testInvoice5000,
 	})
 
-	// Access first domain - should pay.
-	resp1, err := client.Get(ctx, h.ServerURL()+"/domain1/resource")
+	// Use h1's client for both requests so they share a single token
+	// store. The store should isolate tokens by domain (host:port).
+	client, err := h1.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Access first domain — should trigger payment.
+	resp1, err := client.Get(ctx, h1.ServerURL()+"/resource")
 	if err != nil {
 		t.Fatalf("domain1 request failed: %v", err)
 	}
 	_ = resp1.Body.Close()
 
-	// Access second domain - should pay separately.
-	resp2, err := client.Get(ctx, h.ServerURL()+"/domain2/resource")
+	// Access second domain — should trigger a separate payment.
+	resp2, err := client.Get(ctx, h2.ServerURL()+"/resource")
 	if err != nil {
 		t.Fatalf("domain2 request failed: %v", err)
 	}
 	_ = resp2.Body.Close()
 
-	// Verify both endpoints were accessed.
+	// Verify both endpoints returned success.
 	if resp1.StatusCode != 200 {
-		t.Errorf("domain1: expected status 200, got %d", resp1.StatusCode)
+		t.Errorf("domain1: expected status 200, got %d",
+			resp1.StatusCode)
 	}
 	if resp2.StatusCode != 200 {
-		t.Errorf("domain2: expected status 200, got %d", resp2.StatusCode)
+		t.Errorf("domain2: expected status 200, got %d",
+			resp2.StatusCode)
 	}
 
-	// Two separate payments should have been made.
-	payments := h.MockLN().GetPayments()
+	// Two separate payments should have been made (one per domain).
+	// Both harnesses share h1's MockLN backend via the client, so
+	// we check h1's payment count.
+	payments := h1.MockLN().GetPayments()
 	if len(payments) != 2 {
 		t.Errorf("expected 2 payments, got %d", len(payments))
 	}
