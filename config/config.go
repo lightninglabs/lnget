@@ -44,131 +44,131 @@ const (
 // Config holds all configuration for lnget.
 type Config struct {
 	// L402 contains L402 payment settings.
-	L402 L402Config `mapstructure:"l402"`
+	L402 L402Config `mapstructure:"l402" yaml:"l402"`
 
 	// Output contains output formatting settings.
-	Output OutputConfig `mapstructure:"output"`
+	Output OutputConfig `mapstructure:"output" yaml:"output"`
 
 	// HTTP contains HTTP client settings.
-	HTTP HTTPConfig `mapstructure:"http"`
+	HTTP HTTPConfig `mapstructure:"http" yaml:"http"`
 
 	// LN contains Lightning backend settings.
-	LN LNConfig `mapstructure:"ln"`
+	LN LNConfig `mapstructure:"ln" yaml:"ln"`
 
 	// Tokens contains token storage settings.
-	Tokens TokenConfig `mapstructure:"tokens"`
+	Tokens TokenConfig `mapstructure:"tokens" yaml:"tokens"`
 }
 
 // L402Config contains L402 payment settings.
 type L402Config struct {
 	// MaxCostSats is the maximum invoice amount in satoshis to pay
 	// automatically.
-	MaxCostSats int64 `mapstructure:"max_cost_sats"`
+	MaxCostSats int64 `mapstructure:"max_cost_sats" yaml:"max_cost_sats"`
 
 	// MaxFeeSats is the maximum routing fee in satoshis.
-	MaxFeeSats int64 `mapstructure:"max_fee_sats"`
+	MaxFeeSats int64 `mapstructure:"max_fee_sats" yaml:"max_fee_sats"`
 
 	// PaymentTimeout is the timeout for invoice payment.
-	PaymentTimeout time.Duration `mapstructure:"payment_timeout"`
+	PaymentTimeout time.Duration `mapstructure:"payment_timeout" yaml:"payment_timeout"`
 
 	// AutoPay enables automatic invoice payment.
-	AutoPay bool `mapstructure:"auto_pay"`
+	AutoPay bool `mapstructure:"auto_pay" yaml:"auto_pay"`
 }
 
 // OutputConfig contains output formatting settings.
 type OutputConfig struct {
 	// Format is the output format (json or human).
-	Format OutputFormat `mapstructure:"format"`
+	Format OutputFormat `mapstructure:"format" yaml:"format"`
 
 	// Progress shows progress bar for downloads.
-	Progress bool `mapstructure:"progress"`
+	Progress bool `mapstructure:"progress" yaml:"progress"`
 
 	// Verbose enables verbose logging.
-	Verbose bool `mapstructure:"verbose"`
+	Verbose bool `mapstructure:"verbose" yaml:"verbose"`
 }
 
 // HTTPConfig contains HTTP client settings.
 type HTTPConfig struct {
 	// Timeout is the request timeout.
-	Timeout time.Duration `mapstructure:"timeout"`
+	Timeout time.Duration `mapstructure:"timeout" yaml:"timeout"`
 
 	// MaxRedirects is the maximum redirects to follow.
-	MaxRedirects int `mapstructure:"max_redirects"`
+	MaxRedirects int `mapstructure:"max_redirects" yaml:"max_redirects"`
 
 	// UserAgent is the user agent string.
-	UserAgent string `mapstructure:"user_agent"`
+	UserAgent string `mapstructure:"user_agent" yaml:"user_agent"`
 
 	// AllowInsecure allows non-TLS connections.
-	AllowInsecure bool `mapstructure:"allow_insecure"`
+	AllowInsecure bool `mapstructure:"allow_insecure" yaml:"allow_insecure"`
 }
 
 // LNConfig contains Lightning backend settings.
 type LNConfig struct {
 	// Mode is the active Lightning backend mode.
-	Mode LNMode `mapstructure:"mode"`
+	Mode LNMode `mapstructure:"mode" yaml:"mode"`
 
 	// LND contains external lnd connection settings.
-	LND LNDConfig `mapstructure:"lnd"`
+	LND LNDConfig `mapstructure:"lnd" yaml:"lnd"`
 
 	// LNC contains Lightning Node Connect settings.
-	LNC LNCConfig `mapstructure:"lnc"`
+	LNC LNCConfig `mapstructure:"lnc" yaml:"lnc"`
 
 	// Neutrino contains embedded neutrino settings.
-	Neutrino NeutrinoConfig `mapstructure:"neutrino"`
+	Neutrino NeutrinoConfig `mapstructure:"neutrino" yaml:"neutrino"`
 }
 
 // LNDConfig contains external lnd connection settings.
 type LNDConfig struct {
 	// Host is the lnd gRPC host.
-	Host string `mapstructure:"host"`
+	Host string `mapstructure:"host" yaml:"host"`
 
 	// TLSCertPath is the path to lnd's TLS certificate.
-	TLSCertPath string `mapstructure:"tls_cert"`
+	TLSCertPath string `mapstructure:"tls_cert" yaml:"tls_cert"`
 
 	// MacaroonPath is the path to the macaroon file.
-	MacaroonPath string `mapstructure:"macaroon"`
+	MacaroonPath string `mapstructure:"macaroon" yaml:"macaroon"`
 
 	// Network is the network (mainnet, testnet, regtest).
-	Network string `mapstructure:"network"`
+	Network string `mapstructure:"network" yaml:"network"`
 }
 
 // LNCConfig contains Lightning Node Connect settings.
 type LNCConfig struct {
 	// MailboxAddr is the mailbox server address.
-	MailboxAddr string `mapstructure:"mailbox_addr"`
+	MailboxAddr string `mapstructure:"mailbox_addr" yaml:"mailbox_addr"`
 
 	// SessionsDir is the directory for storing sessions.
-	SessionsDir string `mapstructure:"sessions_dir"`
+	SessionsDir string `mapstructure:"sessions_dir" yaml:"sessions_dir"`
 
 	// PairingPhrase is the LNC pairing phrase from the node.
-	PairingPhrase string `mapstructure:"pairing_phrase"`
+	PairingPhrase string `mapstructure:"pairing_phrase" yaml:"pairing_phrase"`
 
 	// SessionID is the ID of an existing session to resume.
-	SessionID string `mapstructure:"session_id"`
+	SessionID string `mapstructure:"session_id" yaml:"session_id"`
 
 	// Ephemeral indicates the session should not be persisted.
-	Ephemeral bool `mapstructure:"ephemeral"`
+	Ephemeral bool `mapstructure:"ephemeral" yaml:"ephemeral"`
 
 	// DevServer skips TLS verification for development.
-	DevServer bool `mapstructure:"dev_server"`
+	DevServer bool `mapstructure:"dev_server" yaml:"dev_server"`
 }
 
 // NeutrinoConfig contains embedded neutrino settings.
 type NeutrinoConfig struct {
 	// DataDir is the data directory for neutrino.
-	DataDir string `mapstructure:"data_dir"`
+	DataDir string `mapstructure:"data_dir" yaml:"data_dir"`
 
 	// Network is the network (mainnet, testnet, regtest).
-	Network string `mapstructure:"network"`
+	Network string `mapstructure:"network" yaml:"network"`
 
 	// Peers is the list of initial peers to connect to.
-	Peers []string `mapstructure:"peers"`
+	Peers []string `mapstructure:"peers" yaml:"peers"`
 }
 
 // TokenConfig contains token storage settings.
 type TokenConfig struct {
 	// Dir is the directory for storing tokens.
-	Dir string `mapstructure:"dir"`
+	Dir string `mapstructure:"dir" yaml:"dir"`
 }
 
 // DefaultConfig returns the default configuration.
