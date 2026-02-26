@@ -1,6 +1,7 @@
 .PHONY: lint lint-source docker-tools fmt fmt-check tidy-module tidy-module-check
 .PHONY: unit unit-cover unit-race check-go-version build install clean release
 .PHONY: itest itest-verbose help man
+.PHONY: dashboard-build build-production
 
 # Default target.
 .DEFAULT_GOAL := build
@@ -11,6 +12,7 @@
 
 PKG := github.com/lightninglabs/lnget
 TOOLS_DIR := tools
+DASHBOARD_DIR := dashboard
 
 GOCC ?= go
 
@@ -237,6 +239,19 @@ release: #? Cross compile for all supported platforms
 		$(GOBUILD) -trimpath $(RELEASE_LDFLAGS) -tags="$(RELEASE_TAGS)" -o ./bin/lnget-$$sys ./cmd/lnget; \
 		echo; \
 	done
+
+# ==================
+# DASHBOARD + BUNDLE
+# ==================
+
+dashboard-build: #? Build the Next.js dashboard for static export
+	@$(call print, "Building dashboard.")
+	cd $(DASHBOARD_DIR) && yarn install --frozen-lockfile && yarn build
+
+build-production: dashboard-build #? Build production binary with embedded dashboard
+	@$(call print, "Building production binary with embedded dashboard.")
+	$(GOBUILD) -trimpath -tags="$(RELEASE_TAGS)" $(RELEASE_LDFLAGS) -o lnget ./cmd/lnget
+	@echo "Production build complete with embedded frontend."
 
 # ==============
 # DOCUMENTATION
