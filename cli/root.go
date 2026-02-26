@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/lnget/build"
 	"github.com/lightninglabs/lnget/client"
 	"github.com/lightninglabs/lnget/config"
+	"github.com/lightninglabs/lnget/events"
 	"github.com/lightninglabs/lnget/l402"
 	"github.com/lightninglabs/lnget/ln"
 	"github.com/spf13/cobra"
@@ -168,6 +169,7 @@ the existing token without additional payments.`,
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewTokensCmd())
 	cmd.AddCommand(NewLNCmd())
+	cmd.AddCommand(NewServeCmd())
 
 	return cmd
 }
@@ -182,21 +184,21 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Apply flag overrides.
-	if flags.maxCost > 0 {
+	// Apply flag overrides — only when explicitly set by the user.
+	if cmd.Flags().Changed("max-cost") {
 		cfg.L402.MaxCostSats = flags.maxCost
 	}
 
-	if flags.maxFee > 0 {
+	if cmd.Flags().Changed("max-fee") {
 		cfg.L402.MaxFeeSats = flags.maxFee
 	}
 
-	if flags.paymentTimeout > 0 {
+	if cmd.Flags().Changed("payment-timeout") {
 		cfg.L402.PaymentTimeout = flags.paymentTimeout
 	}
 
-	if flags.noPay {
-		cfg.L402.AutoPay = false
+	if cmd.Flags().Changed("no-pay") {
+		cfg.L402.AutoPay = !flags.noPay
 	}
 
 	if flags.jsonOutput {
@@ -215,7 +217,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		cfg.HTTP.AllowInsecure = true
 	}
 
-	if flags.maxRedirects > 0 {
+	if cmd.Flags().Changed("max-redirects") {
 		cfg.HTTP.MaxRedirects = flags.maxRedirects
 	}
 
@@ -259,6 +261,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 			"Warning: LN backend failed to start (%v), "+
 				"L402 payments disabled\n", err)
 
+		_ = backend.Stop()
 		backend = ln.NewNoopBackend()
 	}
 
@@ -266,11 +269,26 @@ func runGet(cmd *cobra.Command, args []string) error {
 		_ = backend.Stop()
 	}()
 
+	// Create the event logger if enabled.
+	var eventLogger l402.EventLogger
+	if cfg.Events.Enabled {
+		eventStore, err := events.NewStore(cfg.Events.DBPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr,
+				"Warning: event logging unavailable (%v)\n",
+				err)
+		} else {
+			defer func() { _ = eventStore.Close() }()
+			eventLogger = events.NewLogger(eventStore)
+		}
+	}
+
 	// Create the HTTP client.
 	httpClient, err := client.NewClient(&client.ClientConfig{
-		Config:  cfg,
-		Backend: backend,
-		Store:   store,
+		Config:      cfg,
+		Backend:     backend,
+		Store:       store,
+		EventLogger: eventLogger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
@@ -376,7 +394,7 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 		})
 
 	case config.LNModeNeutrino:
-		return nil, fmt.Errorf("Neutrino backend not yet implemented")
+		return nil, fmt.Errorf("neutrino backend not yet implemented")
 
 	case config.LNModeNone:
 		return ln.NewNoopBackend(), nil

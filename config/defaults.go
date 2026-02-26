@@ -1,9 +1,12 @@
 package config
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/lightninglabs/lnget/build"
 )
 
 const (
@@ -24,9 +27,6 @@ const (
 	// follow.
 	DefaultMaxRedirects = 10
 
-	// DefaultUserAgent is the default user agent string.
-	DefaultUserAgent = "lnget/0.1.0"
-
 	// DefaultLNDHost is the default lnd gRPC host.
 	DefaultLNDHost = "localhost:10009"
 
@@ -34,10 +34,26 @@ const (
 	DefaultMailboxAddr = "mailbox.terminal.lightning.today:443"
 )
 
+// DefaultUserAgent returns the default user agent string, incorporating the
+// build version so it stays in sync with the binary automatically.
+func DefaultUserAgent() string {
+	return "lnget/" + build.Version()
+}
+
+// DefaultEventsDBPath returns the default path to the events database.
+func DefaultEventsDBPath() string {
+	return filepath.Join(DefaultConfigDir(), "events.db")
+}
+
 // DefaultConfigDir returns the default configuration directory path.
+// Falls back to a relative ".lnget" if the home directory cannot be
+// determined.
 func DefaultConfigDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
+		log.Printf("warning: cannot determine home directory, "+
+			"using relative path: %v", err)
+
 		return ".lnget"
 	}
 

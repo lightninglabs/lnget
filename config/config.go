@@ -44,131 +44,143 @@ const (
 // Config holds all configuration for lnget.
 type Config struct {
 	// L402 contains L402 payment settings.
-	L402 L402Config `mapstructure:"l402" yaml:"l402"`
+	L402 L402Config `mapstructure:"l402" yaml:"l402" json:"l402"`
 
 	// Output contains output formatting settings.
-	Output OutputConfig `mapstructure:"output" yaml:"output"`
+	Output OutputConfig `mapstructure:"output" yaml:"output" json:"output"`
 
 	// HTTP contains HTTP client settings.
-	HTTP HTTPConfig `mapstructure:"http" yaml:"http"`
+	HTTP HTTPConfig `mapstructure:"http" yaml:"http" json:"http"`
 
 	// LN contains Lightning backend settings.
-	LN LNConfig `mapstructure:"ln" yaml:"ln"`
+	LN LNConfig `mapstructure:"ln" yaml:"ln" json:"ln"`
 
 	// Tokens contains token storage settings.
-	Tokens TokenConfig `mapstructure:"tokens" yaml:"tokens"`
+	Tokens TokenConfig `mapstructure:"tokens" yaml:"tokens" json:"tokens"`
+
+	// Events contains event logging settings.
+	Events EventsConfig `mapstructure:"events" yaml:"events" json:"events"`
 }
 
 // L402Config contains L402 payment settings.
 type L402Config struct {
 	// MaxCostSats is the maximum invoice amount in satoshis to pay
 	// automatically.
-	MaxCostSats int64 `mapstructure:"max_cost_sats" yaml:"max_cost_sats"`
+	MaxCostSats int64 `mapstructure:"max_cost_sats" yaml:"max_cost_sats" json:"max_cost_sats"`
 
 	// MaxFeeSats is the maximum routing fee in satoshis.
-	MaxFeeSats int64 `mapstructure:"max_fee_sats" yaml:"max_fee_sats"`
+	MaxFeeSats int64 `mapstructure:"max_fee_sats" yaml:"max_fee_sats" json:"max_fee_sats"`
 
 	// PaymentTimeout is the timeout for invoice payment.
-	PaymentTimeout time.Duration `mapstructure:"payment_timeout" yaml:"payment_timeout"`
+	PaymentTimeout time.Duration `mapstructure:"payment_timeout" yaml:"payment_timeout" json:"payment_timeout"`
 
 	// AutoPay enables automatic invoice payment.
-	AutoPay bool `mapstructure:"auto_pay" yaml:"auto_pay"`
+	AutoPay bool `mapstructure:"auto_pay" yaml:"auto_pay" json:"auto_pay"`
 }
 
 // OutputConfig contains output formatting settings.
 type OutputConfig struct {
 	// Format is the output format (json or human).
-	Format OutputFormat `mapstructure:"format" yaml:"format"`
+	Format OutputFormat `mapstructure:"format" yaml:"format" json:"format"`
 
 	// Progress shows progress bar for downloads.
-	Progress bool `mapstructure:"progress" yaml:"progress"`
+	Progress bool `mapstructure:"progress" yaml:"progress" json:"progress"`
 
 	// Verbose enables verbose logging.
-	Verbose bool `mapstructure:"verbose" yaml:"verbose"`
+	Verbose bool `mapstructure:"verbose" yaml:"verbose" json:"verbose"`
 }
 
 // HTTPConfig contains HTTP client settings.
 type HTTPConfig struct {
 	// Timeout is the request timeout.
-	Timeout time.Duration `mapstructure:"timeout" yaml:"timeout"`
+	Timeout time.Duration `mapstructure:"timeout" yaml:"timeout" json:"timeout"`
 
 	// MaxRedirects is the maximum redirects to follow.
-	MaxRedirects int `mapstructure:"max_redirects" yaml:"max_redirects"`
+	MaxRedirects int `mapstructure:"max_redirects" yaml:"max_redirects" json:"max_redirects"`
 
 	// UserAgent is the user agent string.
-	UserAgent string `mapstructure:"user_agent" yaml:"user_agent"`
+	UserAgent string `mapstructure:"user_agent" yaml:"user_agent" json:"user_agent"`
 
 	// AllowInsecure allows non-TLS connections.
-	AllowInsecure bool `mapstructure:"allow_insecure" yaml:"allow_insecure"`
+	AllowInsecure bool `mapstructure:"allow_insecure" yaml:"allow_insecure" json:"allow_insecure"`
 }
 
 // LNConfig contains Lightning backend settings.
 type LNConfig struct {
 	// Mode is the active Lightning backend mode.
-	Mode LNMode `mapstructure:"mode" yaml:"mode"`
+	Mode LNMode `mapstructure:"mode" yaml:"mode" json:"mode"`
 
 	// LND contains external lnd connection settings.
-	LND LNDConfig `mapstructure:"lnd" yaml:"lnd"`
+	LND LNDConfig `mapstructure:"lnd" yaml:"lnd" json:"lnd"`
 
 	// LNC contains Lightning Node Connect settings.
-	LNC LNCConfig `mapstructure:"lnc" yaml:"lnc"`
+	LNC LNCConfig `mapstructure:"lnc" yaml:"lnc" json:"lnc"`
 
 	// Neutrino contains embedded neutrino settings.
-	Neutrino NeutrinoConfig `mapstructure:"neutrino" yaml:"neutrino"`
+	Neutrino NeutrinoConfig `mapstructure:"neutrino" yaml:"neutrino" json:"neutrino"`
 }
 
 // LNDConfig contains external lnd connection settings.
 type LNDConfig struct {
 	// Host is the lnd gRPC host.
-	Host string `mapstructure:"host" yaml:"host"`
+	Host string `mapstructure:"host" yaml:"host" json:"host"`
 
 	// TLSCertPath is the path to lnd's TLS certificate.
-	TLSCertPath string `mapstructure:"tls_cert" yaml:"tls_cert"`
+	TLSCertPath string `mapstructure:"tls_cert" yaml:"tls_cert" json:"tls_cert"`
 
 	// MacaroonPath is the path to the macaroon file.
-	MacaroonPath string `mapstructure:"macaroon" yaml:"macaroon"`
+	MacaroonPath string `mapstructure:"macaroon" yaml:"macaroon" json:"macaroon"`
 
 	// Network is the network (mainnet, testnet, regtest).
-	Network string `mapstructure:"network" yaml:"network"`
+	Network string `mapstructure:"network" yaml:"network" json:"network"`
 }
 
 // LNCConfig contains Lightning Node Connect settings.
 type LNCConfig struct {
 	// MailboxAddr is the mailbox server address.
-	MailboxAddr string `mapstructure:"mailbox_addr" yaml:"mailbox_addr"`
+	MailboxAddr string `mapstructure:"mailbox_addr" yaml:"mailbox_addr" json:"mailbox_addr"`
 
 	// SessionsDir is the directory for storing sessions.
-	SessionsDir string `mapstructure:"sessions_dir" yaml:"sessions_dir"`
+	SessionsDir string `mapstructure:"sessions_dir" yaml:"sessions_dir" json:"sessions_dir"`
 
 	// PairingPhrase is the LNC pairing phrase from the node.
-	PairingPhrase string `mapstructure:"pairing_phrase" yaml:"pairing_phrase"`
+	PairingPhrase string `mapstructure:"pairing_phrase" yaml:"pairing_phrase" json:"pairing_phrase"`
 
 	// SessionID is the ID of an existing session to resume.
-	SessionID string `mapstructure:"session_id" yaml:"session_id"`
+	SessionID string `mapstructure:"session_id" yaml:"session_id" json:"session_id"`
 
 	// Ephemeral indicates the session should not be persisted.
-	Ephemeral bool `mapstructure:"ephemeral" yaml:"ephemeral"`
+	Ephemeral bool `mapstructure:"ephemeral" yaml:"ephemeral" json:"ephemeral"`
 
 	// DevServer skips TLS verification for development.
-	DevServer bool `mapstructure:"dev_server" yaml:"dev_server"`
+	DevServer bool `mapstructure:"dev_server" yaml:"dev_server" json:"dev_server"`
 }
 
 // NeutrinoConfig contains embedded neutrino settings.
 type NeutrinoConfig struct {
 	// DataDir is the data directory for neutrino.
-	DataDir string `mapstructure:"data_dir" yaml:"data_dir"`
+	DataDir string `mapstructure:"data_dir" yaml:"data_dir" json:"data_dir"`
 
 	// Network is the network (mainnet, testnet, regtest).
-	Network string `mapstructure:"network" yaml:"network"`
+	Network string `mapstructure:"network" yaml:"network" json:"network"`
 
 	// Peers is the list of initial peers to connect to.
-	Peers []string `mapstructure:"peers" yaml:"peers"`
+	Peers []string `mapstructure:"peers" yaml:"peers" json:"peers"`
 }
 
 // TokenConfig contains token storage settings.
 type TokenConfig struct {
 	// Dir is the directory for storing tokens.
-	Dir string `mapstructure:"dir" yaml:"dir"`
+	Dir string `mapstructure:"dir" yaml:"dir" json:"dir"`
+}
+
+// EventsConfig contains event logging settings.
+type EventsConfig struct {
+	// Enabled controls whether payment events are recorded.
+	Enabled bool `mapstructure:"enabled" yaml:"enabled" json:"enabled"`
+
+	// DBPath is the path to the SQLite database file.
+	DBPath string `mapstructure:"db_path" yaml:"db_path" json:"db_path"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -188,7 +200,7 @@ func DefaultConfig() *Config {
 		HTTP: HTTPConfig{
 			Timeout:       DefaultHTTPTimeout,
 			MaxRedirects:  DefaultMaxRedirects,
-			UserAgent:     DefaultUserAgent,
+			UserAgent:     DefaultUserAgent(),
 			AllowInsecure: false,
 		},
 		LN: LNConfig{
@@ -215,6 +227,10 @@ func DefaultConfig() *Config {
 		},
 		Tokens: TokenConfig{
 			Dir: DefaultTokenDir(),
+		},
+		Events: EventsConfig{
+			Enabled: true,
+			DBPath:  DefaultEventsDBPath(),
 		},
 	}
 }
@@ -292,6 +308,9 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 	v.SetDefault("ln.neutrino.peers", cfg.LN.Neutrino.Peers)
 
 	v.SetDefault("tokens.dir", cfg.Tokens.Dir)
+
+	v.SetDefault("events.enabled", cfg.Events.Enabled)
+	v.SetDefault("events.db_path", cfg.Events.DBPath)
 }
 
 // EnsureDirectories creates all necessary directories for lnget.
