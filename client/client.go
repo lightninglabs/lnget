@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/lightninglabs/lnget/config"
 	"github.com/lightninglabs/lnget/l402"
@@ -45,6 +44,9 @@ type ClientConfig struct {
 
 	// Store is the per-domain token store.
 	Store l402.Store
+
+	// EventLogger is the optional event logger. Nil disables logging.
+	EventLogger l402.EventLogger
 }
 
 // NewClient creates a new HTTP client with L402 support.
@@ -52,10 +54,11 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	// Create the L402 handler.
 	handler := l402.NewHandler(&l402.HandlerConfig{
 		Store:          cfg.Store,
-		Payer:          &lnPayer{backend: cfg.Backend},
+		Payer:          cfg.Backend,
 		MaxCostSat:     cfg.Config.L402.MaxCostSats,
 		MaxFeeSat:      cfg.Config.L402.MaxFeeSats,
 		PaymentTimeout: cfg.Config.L402.PaymentTimeout,
+		EventLogger:    cfg.EventLogger,
 	})
 
 	// Create the base HTTP transport with optional insecure mode.
@@ -67,13 +70,17 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	baseTransport := defaultTransport.Clone()
 
 	if cfg.Config.HTTP.AllowInsecure {
+		log.Warnf("TLS verification disabled — " +
+			"connections are vulnerable to MITM attacks")
+
 		baseTransport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, //nolint:gosec // User-configured.
 		}
 	}
 
 	// Wrap with L402 transport.
 	transport := NewL402Transport(baseTransport, handler)
+	transport.EventLogger = cfg.EventLogger
 
 	// Create the HTTP client.
 	httpClient := &http.Client{
@@ -221,26 +228,4 @@ type DownloadOptions struct {
 
 	// Progress is the progress tracker for the download.
 	Progress *Progress
-}
-
-// lnPayer wraps an ln.Backend to implement l402.Payer.
-type lnPayer struct {
-	backend ln.Backend
-}
-
-// PayInvoice implements l402.Payer.
-//
-//nolint:whitespace
-func (p *lnPayer) PayInvoice(ctx context.Context, invoice string,
-	maxFeeSat int64, timeout time.Duration) (*l402.PaymentResult, error) {
-	result, err := p.backend.PayInvoice(ctx, invoice, maxFeeSat, timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	return &l402.PaymentResult{
-		Preimage:       result.Preimage,
-		AmountPaid:     result.AmountPaid,
-		RoutingFeePaid: result.RoutingFeePaid,
-	}, nil
 }

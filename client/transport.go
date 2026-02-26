@@ -3,6 +3,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,18 @@ import (
 
 	"github.com/lightninglabs/lnget/l402"
 )
+
+// EventEnricher is the interface for enriching payment events with HTTP
+// response metadata after a successful retry. Implementations that also
+// implement this interface will have their events enriched with the URL,
+// method, content type, response size, and status code.
+type EventEnricher interface {
+	// EnrichEvent updates the event with the given ID with HTTP
+	// response metadata.
+	EnrichEvent(ctx context.Context, id int64, url, method,
+		contentType string, responseSize int64,
+		statusCode int) error
+}
 
 // L402Transport is an http.RoundTripper that handles L402 payment challenges.
 // When a server responds with HTTP 402 Payment Required and an L402 challenge,
@@ -22,14 +35,24 @@ type L402Transport struct {
 	// Handler is the L402 handler for payment coordination.
 	Handler *l402.Handler
 
+	// EventLogger is the optional event logger for enriching payment
+	// events with HTTP response metadata.
+	EventLogger l402.EventLogger
+
 	// domainLocks provides per-domain locking to allow concurrent requests
 	// to different domains while serializing requests to the same domain.
+	// The map grows without bound which is acceptable for a client-side CLI
+	// where the number of distinct domains is small. For long-running server
+	// mode (lnget serve), an LRU eviction policy should be added if the
+	// number of unique domains becomes significant.
 	domainLocks map[string]*sync.Mutex
 	locksMu     sync.Mutex
 }
 
 // NewL402Transport creates a new L402-aware HTTP transport.
-func NewL402Transport(base http.RoundTripper, handler *l402.Handler) *L402Transport {
+func NewL402Transport(base http.RoundTripper,
+	handler *l402.Handler) *L402Transport {
+
 	if base == nil {
 		base = http.DefaultTransport
 	}
@@ -163,10 +186,26 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.retryWithToken(req, token, l402.AuthPrefixL402)
 	}
 
+	// Re-issue the request to get a fresh 402 challenge. The original
+	// response may be stale after waiting for the domain lock.
+	freshResp, err := t.Base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the server no longer returns 402, return directly.
+	if !l402.IsL402Challenge(freshResp) {
+		return freshResp, nil
+	}
+
+	// Drain and close the fresh 402 body before payment.
+	_, _ = io.Copy(io.Discard, freshResp.Body)
+	_ = freshResp.Body.Close()
+
 	// Pay the invoice and get the token. HandleChallenge also
 	// returns the prefix the server used in its challenge header.
 	token, prefix, err := t.Handler.HandleChallenge(
-		req.Context(), challengeResp, domain,
+		req.Context(), freshResp, domain,
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Payment failed: %v\n", err)
@@ -178,7 +217,15 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// Retry the request with the paid token, mirroring the server's
 	// prefix choice.
-	return t.retryWithToken(req, token, prefix)
+	retryResp, err := t.retryWithToken(req, token, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enrich the event with response metadata if we have a logger.
+	t.enrichEvent(req, retryResp)
+
+	return retryResp, nil
 }
 
 // retryWithToken clones the request and adds the L402 token with the
@@ -209,6 +256,38 @@ func (t *L402Transport) retryWithToken(req *http.Request,
 	}
 
 	return t.Base.RoundTrip(reqWithToken)
+}
+
+// enrichEvent updates the event recorded during payment with HTTP
+// response metadata from the retry response. It uses the handler's
+// LastEventID to target the exact event, avoiding TOCTOU races.
+func (t *L402Transport) enrichEvent(req *http.Request,
+	resp *http.Response) {
+
+	if t.EventLogger == nil {
+		return
+	}
+
+	el, ok := t.EventLogger.(EventEnricher)
+	if !ok {
+		return
+	}
+
+	eventID := t.Handler.LastEventID()
+	if eventID == 0 {
+		return
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+
+	err := el.EnrichEvent(
+		req.Context(), eventID, req.URL.String(), req.Method,
+		contentType, resp.ContentLength, resp.StatusCode,
+	)
+	if err != nil {
+		log.Warnf("Failed to enrich event %d: %v",
+			eventID, err)
+	}
 }
 
 // getDomainLock returns the lock for a specific domain, creating it if needed.
