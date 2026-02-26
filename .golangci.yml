@@ -31,6 +31,8 @@ linters:
     # Disable whitespace linter as it has conflict rules against our
     # contribution guidelines.
     - wsl
+    - wsl_v5
+    - whitespace
 
     # Allow using default empty values.
     - exhaustruct
@@ -108,6 +110,38 @@ linters:
     # Function ordering is not critical.
     - funcorder
 
+    # Inline error handling is idiomatic in this codebase.
+    - noinlineerr
+
+    # Context-free net.Listen/db.Exec is acceptable for CLI tools.
+    - noctx
+
+    # We explicitly discard json.Encode errors with _ =.
+    - errchkjson
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - funlen
+          - revive
+          - dupl
+
+      - path: mock*
+        linters:
+          - revive
+          - forcetypeassert
+
+      - path: test*
+        linters:
+          - gosec
+          - funlen
+
+      - path: cmd/.*/main\.go
+        linters:
+          - forbidigo
+
   settings:
     errorlint:
       errorf: true
@@ -129,6 +163,7 @@ linters:
         - G601
         - G115
         - G304
+        - G704
 
     staticcheck:
       checks:
@@ -151,25 +186,3 @@ linters:
       line-length: 80
       tab-width: 8
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - funlen
-        - revive
-        - dupl
-
-    - path: mock*
-      linters:
-        - revive
-        - forcetypeassert
-
-    - path: test*
-      linters:
-        - gosec
-        - funlen
-
-    - path: cmd/.*/main\.go
-      linters:
-        - forbidigo

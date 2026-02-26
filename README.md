@@ -256,6 +256,53 @@ Tokens are stored at `~/.lnget/tokens/<domain>/` and persist across invocations.
 | 3 | Payment failed |
 | 4 | Network/connection error |
 
+## Dashboard
+
+lnget includes a web dashboard for monitoring your L402 spending, tokens, and wallet status.
+
+### Running the Dashboard
+
+```bash
+# Start the API server (serves data from ~/.lnget/events.db)
+lnget serve --addr localhost:2402
+
+# In another terminal, start the dashboard dev server
+cd dashboard
+npm install
+npm run dev
+# Open http://localhost:3001
+```
+
+The dashboard shows:
+- **Dashboard**: Total spending, payment counts, active tokens, wallet balance, spending charts
+- **Tokens**: Cached L402 tokens with domain, amount, status, and management actions
+- **Payments**: Full payment history with filters, volume charts, success rates
+- **Status**: Lightning backend info, wallet balance, configuration overview
+
+### Event Logging
+
+lnget automatically records all L402 payment events to `~/.lnget/events.db` (SQLite). This is enabled by default and can be configured:
+
+```yaml
+events:
+  enabled: true
+  db_path: ~/.lnget/events.db
+```
+
+### API Server
+
+`lnget serve` exposes a REST API on `localhost:2402`:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/events` | List payment events (query: limit, offset, domain, status) |
+| `GET /api/events/stats` | Aggregate spending statistics |
+| `GET /api/events/domains` | Per-domain spending breakdown |
+| `GET /api/tokens` | List all cached tokens |
+| `DELETE /api/tokens/:domain` | Remove a token |
+| `GET /api/status` | Lightning backend status |
+| `GET /api/config` | Current configuration (sensitive fields redacted) |
+
 ## Development
 
 ```bash
@@ -271,8 +318,11 @@ The codebase follows a functional core / imperative shell pattern:
 - `l402/` - Token handling, challenge parsing, storage (pure/testable)
 - `client/` - HTTP client with L402 transport layer
 - `ln/` - Lightning backend implementations
+- `events/` - SQLite event store for payment logging
+- `api/` - REST API server for dashboard
 - `cli/` - Cobra command definitions
 - `cmd/lnget/` - Entry point
+- `dashboard/` - Next.js web dashboard
 
 See [docs/agents.md](docs/agents.md) for architecture details aimed at AI agents working on this codebase.
 

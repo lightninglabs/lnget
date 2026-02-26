@@ -235,7 +235,8 @@ lnget/
 │   ├── root.go              # Main download command (wget/curl-like flags)
 │   ├── config.go            # lnget config subcommand (show, set, path, init)
 │   ├── tokens.go            # lnget tokens subcommand (list, show, remove, clear)
-│   └── ln.go                # lnget ln subcommand (status, info)
+│   ├── ln.go                # lnget ln subcommand (status, info)
+│   └── serve.go             # lnget serve subcommand (API server)
 ├── client/
 │   ├── client.go            # HTTP client orchestration with L402 support
 │   ├── transport.go         # L402Transport (http.RoundTripper)
@@ -245,11 +246,21 @@ lnget/
 ├── config/
 │   ├── config.go            # Config struct and YAML loading
 │   └── defaults.go          # Default configuration values
+├── events/
+│   ├── types.go             # Event, Stats, DomainSpending types
+│   ├── migrations.go        # SQLite schema (auto-run on first open)
+│   ├── store.go             # SQLite event store (record, query, stats)
+│   └── logger.go            # EventLogger implementation (wraps Store)
+├── api/
+│   ├── server.go            # REST API server with CORS, JSON helpers
+│   ├── events.go            # Event list, stats, domain spending handlers
+│   ├── tokens.go            # Token list, show, remove handlers
+│   └── status.go            # LN backend status and config handlers
 ├── l402/
 │   ├── store.go             # Per-domain Store interface
 │   ├── filestore.go         # FileStore at ~/.lnget/tokens/<domain>/
 │   ├── token.go             # Token struct and serialization
-│   ├── handler.go           # Challenge detection and payment coordination
+│   ├── handler.go           # Challenge detection, payment, EventLogger iface
 │   └── header.go            # Header parsing (WWW-Authenticate, Authorization)
 ├── ln/
 │   ├── interface.go         # Backend interface for invoice payment
@@ -257,6 +268,11 @@ lnget/
 ├── build/
 │   ├── version.go           # Version info (git tag, commit, date)
 │   └── log.go               # btclog-based structured logging
+├── dashboard/               # Next.js consumer dashboard
+│   ├── app/                 # Pages: Dashboard, Tokens, Payments, Status
+│   ├── components/          # Shared UI components and charts
+│   ├── lib/                 # Theme, types, SWR API hooks
+│   └── package.json
 ├── tools/
 │   └── tools.go             # Build tool dependencies
 ├── development_guidelines.md # Detailed style guide
@@ -304,6 +320,16 @@ The codebase follows a clear separation:
    - Progress tracking for downloads
    - Resume support via Range headers
    - Pipe-friendly output modes
+
+5. **Event Store (events/)** - SQLite-backed payment log:
+   - Records every L402 payment attempt (success/failure)
+   - Append-only log at `~/.lnget/events.db`
+   - Query support: list, stats, per-domain breakdown
+
+6. **REST API Server (api/)** - Dashboard backend:
+   - `lnget serve` exposes events, tokens, status via HTTP
+   - CORS enabled for localhost origins
+   - Serves at `localhost:2402` by default
 
 ## Additional Resources
 

@@ -366,19 +366,53 @@ func (m *mockBackend) PayInvoice(...) (*PaymentResult, error) {
 
 ## Future Considerations
 
+### Event Logging and Dashboard
+
+lnget includes an append-only event log and a web dashboard for spending analytics:
+
+```mermaid
+graph LR
+    CLI["lnget CLI"] -->|writes| DB["~/.lnget/events.db<br/>(SQLite)"]
+    Serve["lnget serve"] -->|reads| DB
+    Serve -->|reads| Tokens["tokens/"]
+    Serve -->|reads| LN["LN backend"]
+    Serve -->|exposes| API["REST API<br/>localhost:2402"]
+    API --- E["/api/events"]
+    API --- T["/api/tokens"]
+    API --- S["/api/status"]
+    API --- St["/api/stats"]
+    Dashboard["dashboard<br/>localhost:3001"] -->|fetches| API
+```
+
+**Event Store (events/):**
+- SQLite-backed (`modernc.org/sqlite`, pure Go, no CGO)
+- Records every L402 payment attempt with domain, amount, fee, status, timing
+- `EventLogger` interface defined in `l402/handler.go`, implemented by `events/logger.go`
+- Events are enriched in the transport layer with URL, method, and response metadata
+
+**REST API Server (api/):**
+- `lnget serve` starts an HTTP server at `localhost:2402`
+- Endpoints: events, stats, domains, tokens, status, config
+- CORS enabled for localhost origins
+
+**Dashboard (dashboard/):**
+- Next.js 15 app at `localhost:3001`
+- Pages: Dashboard (overview), Tokens (management), Payments (history), Status (backend)
+- SWR hooks for real-time data fetching
+- Charts via visx (spending over time, domain breakdown, payment volume)
+
 ### Potential Extensions
 
 1. **Token refresh**: Automatically re-pay when tokens expire
-2. **Budget tracking**: Track spending across sessions
-3. **Batch payments**: Pay multiple invoices in one go
-4. **Streaming support**: L402 for WebSocket/SSE
+2. **Batch payments**: Pay multiple invoices in one go
+3. **Streaming support**: L402 for WebSocket/SSE
 
 ### Design Constraints
 
-1. **No daemon**: lnget is a CLI tool, not a long-running service
-2. **Minimal state**: Only tokens are persisted
+1. **CLI-first, serve optional**: lnget is primarily a CLI tool; `lnget serve` adds optional server mode
+2. **Append-only events**: Payment log at `~/.lnget/events.db` is append-only
 3. **Standard HTTP**: Uses net/http, no custom protocols
-4. **CLI-first**: Agent usage via shell, not library API
+4. **Agent-friendly**: JSON output, structured APIs, quiet mode for piping
 
 ## Related Documentation
 
