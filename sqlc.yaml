@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "events/sqlc/queries"
+    schema: "events/sqlc/migrations"
+    gen:
+      go:
+        package: "sqlc"
+        out: "events/sqlc"
+        emit_empty_slices: true
