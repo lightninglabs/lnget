@@ -3,8 +3,11 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestDefaultConfig tests default configuration values.
@@ -386,6 +389,108 @@ func TestDefaultLNDPaths(t *testing.T) {
 	if filepath.Base(macaroonPath) != "admin.macaroon" {
 		t.Errorf("DefaultLNDMacaroonPath() = %q, want **/admin.macaroon",
 			macaroonPath)
+	}
+}
+
+// TestYAMLRoundTrip verifies that marshaling a config with non-default
+// values to YAML and loading it back via Viper produces the same values.
+// We use non-default values so the DeepEqual check actually proves the
+// values survived through the YAML file rather than coming from Viper
+// defaults.
+func TestYAMLRoundTrip(t *testing.T) {
+	original := DefaultConfig()
+
+	// Override with non-default values so the round-trip test is
+	// meaningful. If yaml tags were wrong, Viper would silently
+	// fall back to defaults and these values would be lost.
+	original.L402.MaxCostSats = 9999
+	original.L402.MaxFeeSats = 77
+	original.L402.AutoPay = false
+	original.HTTP.MaxRedirects = 3
+	original.HTTP.UserAgent = "roundtrip-test/1.0"
+	original.HTTP.AllowInsecure = true
+	original.LN.Mode = LNModeLNC
+	original.LN.LND.Host = "remote.example.com:10009"
+	original.LN.LND.Network = "testnet"
+
+	// Marshal to YAML (this is what config init does).
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	// Verify that snake_case keys are present in the YAML output.
+	yamlStr := string(data)
+
+	requiredKeys := []string{
+		"max_cost_sats:", "max_fee_sats:", "payment_timeout:",
+		"auto_pay:", "max_redirects:", "user_agent:",
+		"allow_insecure:", "tls_cert:", "macaroon:",
+		"mailbox_addr:", "sessions_dir:", "pairing_phrase:",
+		"session_id:", "dev_server:", "data_dir:",
+	}
+	for _, key := range requiredKeys {
+		if !strings.Contains(yamlStr, key) {
+			t.Errorf("YAML output missing key %q", key)
+		}
+	}
+
+	// Write the YAML to a temp file and load it back via Viper.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	err = os.WriteFile(configPath, data, 0600)
+	if err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// Compare the loaded config with the original. Since we used
+	// non-default values, this catches yaml tag mismatches that
+	// would cause Viper to silently fall back to defaults.
+	if !reflect.DeepEqual(original, loaded) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  loaded:   %+v",
+			original, loaded)
+	}
+}
+
+// TestYAMLKeysMatchMapstructure verifies that every struct field with a
+// mapstructure tag also has a matching yaml tag. This prevents future
+// regressions where a new field is added with mapstructure but without
+// the corresponding yaml tag.
+func TestYAMLKeysMatchMapstructure(t *testing.T) {
+	checkTags(t, reflect.TypeOf(Config{}), "")
+}
+
+// checkTags recursively verifies that mapstructure and yaml tags match
+// for all struct fields.
+func checkTags(t *testing.T, typ reflect.Type, prefix string) {
+	t.Helper()
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		ms := field.Tag.Get("mapstructure")
+		ym := field.Tag.Get("yaml")
+
+		fullName := prefix + field.Name
+		if ms == "" {
+			continue
+		}
+
+		if ym != ms {
+			t.Errorf("field %s: mapstructure=%q but yaml=%q",
+				fullName, ms, ym)
+		}
+
+		// Recurse into nested structs.
+		ft := field.Type
+		if ft.Kind() == reflect.Struct {
+			checkTags(t, ft, fullName+".")
+		}
 	}
 }
 
