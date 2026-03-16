@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,6 +43,15 @@ func NewL402Transport(base http.RoundTripper, handler *l402.Handler) *L402Transp
 // RoundTrip implements http.RoundTripper. It intercepts 402 responses and
 // handles L402 payment challenges automatically.
 func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Buffer the request body so it can be replayed on L402 retries.
+	// The initial request consumes the body reader, so without
+	// buffering, any retry (Path A token or Path B post-payment)
+	// would send an empty body for POST/PUT/PATCH requests.
+	err := bufferRequestBody(req)
+	if err != nil {
+		return nil, err
+	}
+
 	domain := l402.DomainFromURL(req.URL)
 
 	// Try to get an existing token for this domain.
@@ -151,6 +161,31 @@ func (t *L402Transport) getDomainLock(domain string) *sync.Mutex {
 	t.domainLocks[domain] = lock
 
 	return lock
+}
+
+// bufferRequestBody reads the request body into memory and replaces it with
+// a replayable reader. This sets GetBody so that Clone and retryWithToken
+// can produce fresh readers for each attempt. If the body is nil or GetBody
+// is already set, this is a no-op.
+func bufferRequestBody(req *http.Request) error {
+	if req.Body == nil || req.GetBody != nil {
+		return nil
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		return fmt.Errorf("failed to buffer request body: %w", err)
+	}
+
+	_ = req.Body.Close()
+
+	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	req.ContentLength = int64(len(bodyBytes))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+
+	return nil
 }
 
 // WrappedTransport returns a transport that wraps an existing one with L402
