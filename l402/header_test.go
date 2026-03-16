@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/lightninglabs/aperture/l402"
@@ -221,5 +222,245 @@ func TestIsL402Challenge(t *testing.T) {
 					result, tc.expected)
 			}
 		})
+	}
+}
+
+// makePaidToken creates a paid token for testing SetHeader.
+func makePaidToken(t *testing.T) *Token {
+	t.Helper()
+
+	paymentHash := lntypes.Hash{
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24,
+		25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	mac := makeTestMacaroon(t, paymentHash)
+
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal macaroon: %v", err)
+	}
+
+	token, err := NewTokenFromChallenge(macBytes, paymentHash)
+	if err != nil {
+		t.Fatalf("NewTokenFromChallenge() error = %v", err)
+	}
+
+	token.Preimage = lntypes.Preimage{
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+	}
+
+	return token
+}
+
+// TestSetHeaderMirrorsPrefix verifies that SetHeader mirrors the server's
+// auth prefix choice. When given AuthPrefixL402 the output starts with
+// "L402 ", when given AuthPrefixLSAT it starts with "LSAT ".
+func TestSetHeaderMirrorsPrefix(t *testing.T) {
+	token := makePaidToken(t)
+
+	tests := []struct {
+		name           string
+		prefix         AuthPrefix
+		expectedPrefix string
+	}{
+		{
+			name:           "L402 prefix",
+			prefix:         AuthPrefixL402,
+			expectedPrefix: "L402 ",
+		},
+		{
+			name:           "LSAT prefix",
+			prefix:         AuthPrefixLSAT,
+			expectedPrefix: "LSAT ",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			header := make(http.Header)
+
+			err := SetHeader(&header, token, tc.prefix)
+			if err != nil {
+				t.Fatalf("SetHeader() error = %v", err)
+			}
+
+			authValue := header.Get(HeaderAuthorization)
+
+			if !strings.HasPrefix(authValue, tc.expectedPrefix) {
+				t.Errorf("expected prefix %q, got %q",
+					tc.expectedPrefix, authValue)
+			}
+
+			// Verify the format is "<PREFIX> <base64>:<hex>".
+			creds := authValue[len(tc.expectedPrefix):]
+
+			parts := strings.SplitN(creds, ":", 2)
+			if len(parts) != 2 {
+				t.Fatalf("expected <mac>:<preimage>, got %q",
+					creds)
+			}
+
+			// Verify base64 macaroon.
+			_, err = base64.StdEncoding.DecodeString(parts[0])
+			if err != nil {
+				t.Errorf("invalid base64 macaroon: %v", err)
+			}
+
+			// Verify 64-char hex preimage.
+			if len(parts[1]) != 64 {
+				t.Errorf("preimage should be 64 hex chars, "+
+					"got %d", len(parts[1]))
+			}
+		})
+	}
+}
+
+// TestSetHeaderCredentialsIdentical verifies that the credentials portion
+// (macaroon:preimage) is byte-identical regardless of which prefix is
+// used.
+func TestSetHeaderCredentialsIdentical(t *testing.T) {
+	token := makePaidToken(t)
+
+	headerL402 := make(http.Header)
+
+	err := SetHeader(&headerL402, token, AuthPrefixL402)
+	if err != nil {
+		t.Fatalf("SetHeader(L402) error = %v", err)
+	}
+
+	headerLSAT := make(http.Header)
+
+	err = SetHeader(&headerLSAT, token, AuthPrefixLSAT)
+	if err != nil {
+		t.Fatalf("SetHeader(LSAT) error = %v", err)
+	}
+
+	// Strip the 5-char prefix ("L402 " or "LSAT ") and compare.
+	credsL402 := headerL402.Get(HeaderAuthorization)[5:]
+	credsLSAT := headerLSAT.Get(HeaderAuthorization)[5:]
+
+	if credsL402 != credsLSAT {
+		t.Errorf("credentials differ between prefixes:\n"+
+			"  L402: %q\n  LSAT: %q", credsL402, credsLSAT)
+	}
+}
+
+// TestParseChallengePrefix verifies that ParseChallenge captures the
+// server's prefix choice into the Challenge.Prefix field.
+func TestParseChallengePrefix(t *testing.T) {
+	paymentHash := lntypes.Hash{
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24,
+		25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	mac := makeTestMacaroon(t, paymentHash)
+
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal macaroon: %v", err)
+	}
+
+	macBase64 := base64.StdEncoding.EncodeToString(macBytes)
+	invoice := "lnbc100n1ptest..."
+
+	tests := []struct {
+		name           string
+		headerPrefix   string
+		expectedPrefix AuthPrefix
+	}{
+		{
+			name:           "L402 prefix",
+			headerPrefix:   "L402",
+			expectedPrefix: AuthPrefixL402,
+		},
+		{
+			name:           "LSAT prefix",
+			headerPrefix:   "LSAT",
+			expectedPrefix: AuthPrefixLSAT,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			header := tc.headerPrefix +
+				` macaroon="` + macBase64 +
+				`", invoice="` + invoice + `"`
+
+			challenge, err := ParseChallenge(header)
+			if err != nil {
+				t.Fatalf("ParseChallenge() error = %v", err)
+			}
+
+			if challenge.Prefix != tc.expectedPrefix {
+				t.Errorf("Prefix = %q, want %q",
+					challenge.Prefix,
+					tc.expectedPrefix)
+			}
+		})
+	}
+}
+
+// TestParseAuthPrefix tests the ParseAuthPrefix function.
+func TestParseAuthPrefix(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected AuthPrefix
+	}{
+		{"L402", AuthPrefixL402},
+		{"l402", AuthPrefixL402},
+		{"LSAT", AuthPrefixLSAT},
+		{"lsat", AuthPrefixLSAT},
+		{"Lsat", AuthPrefixLSAT},
+		{"unknown", AuthPrefixL402},
+		{"", AuthPrefixL402},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := ParseAuthPrefix(tc.input)
+			if got != tc.expected {
+				t.Errorf("ParseAuthPrefix(%q) = %q, want %q",
+					tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestSetHeaderPendingTokenFails verifies that SetHeader rejects pending
+// (unpaid) tokens.
+func TestSetHeaderPendingTokenFails(t *testing.T) {
+	paymentHash := lntypes.Hash{
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24,
+		25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	mac := makeTestMacaroon(t, paymentHash)
+
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal macaroon: %v", err)
+	}
+
+	// Create a pending token (zero preimage).
+	token, err := NewTokenFromChallenge(macBytes, paymentHash)
+	if err != nil {
+		t.Fatalf("NewTokenFromChallenge() error = %v", err)
+	}
+
+	header := make(http.Header)
+
+	err = SetHeader(&header, token, AuthPrefixL402)
+	if err == nil {
+		t.Error("SetHeader() should fail for pending token")
 	}
 }
