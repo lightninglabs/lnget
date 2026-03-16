@@ -134,7 +134,9 @@ func (t *L402Transport) retryWithToken(req *http.Request,
 		return nil, fmt.Errorf("failed to set L402 header: %w", err)
 	}
 
-	// If the request had a body, we need to reset it for the retry.
+	// Defensive: explicitly reset the body from GetBody even though
+	// Clone also calls it. This ensures the body is fresh regardless
+	// of whether Clone's internals change in future Go versions.
 	if req.GetBody != nil {
 		body, err := req.GetBody()
 		if err != nil {
