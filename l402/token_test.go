@@ -14,6 +14,7 @@ func makeMacaroon(t *testing.T) *macaroon.Macaroon {
 	t.Helper()
 
 	var nonce [32]byte
+
 	_, err := rand.Read(nonce[:])
 	require.NoError(t, err)
 
@@ -36,6 +37,7 @@ func TestNewTokenFromChallenge(t *testing.T) {
 	require.NoError(t, err)
 
 	var paymentHash [32]byte
+
 	_, err = rand.Read(paymentHash[:])
 	require.NoError(t, err)
 
@@ -68,6 +70,7 @@ func TestNewTokenFromChallenge_InvalidMacaroon(t *testing.T) {
 	t.Parallel()
 
 	invalidMac := []byte("not-a-valid-macaroon")
+
 	var paymentHash [32]byte
 
 	_, err := NewTokenFromChallenge(invalidMac, paymentHash)
@@ -86,6 +89,7 @@ func TestNewTokenFromChallenge_StorePending(t *testing.T) {
 	require.NoError(t, err)
 
 	var paymentHash [32]byte
+
 	_, err = rand.Read(paymentHash[:])
 	require.NoError(t, err)
 

@@ -32,7 +32,6 @@ var tokenByteOrder = binary.BigEndian
 // baseMac field is properly populated.
 func NewTokenFromChallenge(macBytes []byte,
 	paymentHash [32]byte) (*Token, error) {
-
 	// Build the token in aperture's binary serialization format:
 	//   [4]  macLen      uint32
 	//   [N]  macBytes    []byte
@@ -44,42 +43,46 @@ func NewTokenFromChallenge(macBytes []byte,
 	var buf bytes.Buffer
 
 	macLen := uint32(len(macBytes))
-	if err := binary.Write(&buf, tokenByteOrder, macLen); err != nil {
+
+	err := binary.Write(&buf, tokenByteOrder, macLen)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write mac length: %w", err)
 	}
 
-	if err := binary.Write(&buf, tokenByteOrder, macBytes); err != nil {
+	err = binary.Write(&buf, tokenByteOrder, macBytes)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write mac bytes: %w", err)
 	}
 
-	if err := binary.Write(&buf, tokenByteOrder, paymentHash); err != nil {
+	err = binary.Write(&buf, tokenByteOrder, paymentHash)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write payment hash: %w",
 			err)
 	}
 
 	// Zero preimage indicates a pending token.
 	var zeroPreimage lntypes.Preimage
-	if err := binary.Write(
-		&buf, tokenByteOrder, zeroPreimage,
-	); err != nil {
+
+	err = binary.Write(&buf, tokenByteOrder, zeroPreimage)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write preimage: %w", err)
 	}
 
 	// Zero amounts for a newly created token.
-	if err := binary.Write(
-		&buf, tokenByteOrder, uint64(0),
-	); err != nil {
+	err = binary.Write(&buf, tokenByteOrder, uint64(0))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write amount: %w", err)
 	}
 
-	if err := binary.Write(
-		&buf, tokenByteOrder, uint64(0),
-	); err != nil {
+	err = binary.Write(&buf, tokenByteOrder, uint64(0))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write routing fee: %w", err)
 	}
 
 	timeNano := time.Now().UnixNano()
-	if err := binary.Write(&buf, tokenByteOrder, timeNano); err != nil {
+
+	err = binary.Write(&buf, tokenByteOrder, timeNano)
+	if err != nil {
 		return nil, fmt.Errorf("failed to write timestamp: %w", err)
 	}
 
@@ -89,10 +92,13 @@ func NewTokenFromChallenge(macBytes []byte,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Write as a pending token file (aperture uses "l402.token.pending").
 	pendingFile := filepath.Join(tmpDir, "l402.token.pending")
+
 	err = os.WriteFile(pendingFile, buf.Bytes(), 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write temp token: %w", err)
