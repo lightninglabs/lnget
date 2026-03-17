@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/lightninglabs/lnget/config"
 	"github.com/lightninglabs/lnget/l402"
@@ -20,6 +21,11 @@ type Client struct {
 
 	// handler is the L402 payment handler.
 	handler *l402.Handler
+
+	// l402Transport is the L402-aware transport layer. Stored
+	// separately so callers can read LastPayment() for result
+	// population.
+	l402Transport *L402Transport
 
 	// store is the per-domain token store.
 	store l402.Store
@@ -99,12 +105,13 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		httpClient: httpClient,
-		handler:    handler,
-		store:      cfg.Store,
-		backend:    cfg.Backend,
-		cfg:        cfg.Config,
-		output:     NewOutput(cfg.Config.Output.Format),
+		httpClient:    httpClient,
+		handler:       handler,
+		l402Transport: transport,
+		store:         cfg.Store,
+		backend:       cfg.Backend,
+		cfg:           cfg.Config,
+		output:        NewOutput(cfg.Config.Output.Format),
 	}, nil
 }
 
@@ -136,18 +143,20 @@ func (c *Client) Do(req *http.Request) (*Response, error) {
 	}, nil
 }
 
-// Download downloads a URL to a file.
+// Download downloads a URL to a file and returns metadata about the
+// completed download including any L402 payment information.
 //
 //nolint:whitespace
 func (c *Client) Download(ctx context.Context, url string, outputPath string,
-	opts *DownloadOptions) error {
+	opts *DownloadOptions) (*DownloadResult, error) {
+
 	if opts == nil {
 		opts = &DownloadOptions{}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set user agent.
@@ -163,9 +172,11 @@ func (c *Client) Download(ctx context.Context, url string, outputPath string,
 	}
 
 	// Perform the request.
+	start := time.Now()
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer func() {
@@ -177,20 +188,20 @@ func (c *Client) Download(ctx context.Context, url string, outputPath string,
 		resp.StatusCode == http.StatusPartialContent
 
 	if !validStatus {
-		return fmt.Errorf("server returned %s", resp.Status)
+		return nil, fmt.Errorf("server returned %s", resp.Status)
 	}
 
 	// Open output file.
-	flags := os.O_CREATE | os.O_WRONLY
+	openFlags := os.O_CREATE | os.O_WRONLY
 	if resp.StatusCode == http.StatusPartialContent {
-		flags |= os.O_APPEND
+		openFlags |= os.O_APPEND
 	} else {
-		flags |= os.O_TRUNC
+		openFlags |= os.O_TRUNC
 	}
 
-	file, err := os.OpenFile(outputPath, flags, 0600)
+	file, err := os.OpenFile(outputPath, openFlags, 0600)
 	if err != nil {
-		return fmt.Errorf("failed to open output file: %w", err)
+		return nil, fmt.Errorf("failed to open output file: %w", err)
 	}
 
 	defer func() {
@@ -205,13 +216,33 @@ func (c *Client) Download(ctx context.Context, url string, outputPath string,
 		writer = io.MultiWriter(file, opts.Progress)
 	}
 
-	// Copy the response body.
-	_, err = io.Copy(writer, resp.Body)
+	// Copy the response body and track bytes written.
+	written, err := io.Copy(writer, resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to download: %w", err)
+		return nil, fmt.Errorf("failed to download: %w", err)
 	}
 
-	return nil
+	duration := time.Since(start)
+
+	// Build the download result with metadata.
+	result := &DownloadResult{
+		URL:         url,
+		OutputPath:  outputPath,
+		Size:        written,
+		ContentType: resp.Header.Get("Content-Type"),
+		StatusCode:  resp.StatusCode,
+		Duration:    duration.Round(time.Millisecond).String(),
+		DurationMs:  duration.Milliseconds(),
+	}
+
+	// Attach L402 payment info if a payment was made.
+	if payment := c.l402Transport.LastPayment(); payment != nil {
+		result.L402Paid = true
+		result.L402AmountSat = payment.AmountSat
+		result.L402FeeSat = payment.FeeSat
+	}
+
+	return result, nil
 }
 
 // Response wraps an http.Response with additional lnget functionality.

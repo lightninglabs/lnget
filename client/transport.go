@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/lightninglabs/lnget/l402"
 )
@@ -35,6 +36,17 @@ type EventEnricher interface {
 		statusCode int) error
 }
 
+// PaymentInfo records the amount and fee from the most recent L402
+// payment made by the transport. This is read by the CLI layer to
+// populate DownloadResult fields.
+type PaymentInfo struct {
+	// AmountSat is the invoice amount paid in satoshis.
+	AmountSat int64
+
+	// FeeSat is the routing fee paid in satoshis.
+	FeeSat int64
+}
+
 // L402Transport is an http.RoundTripper that handles L402 payment challenges.
 // When a server responds with HTTP 402 Payment Required and an L402 challenge,
 // this transport automatically pays the invoice and retries the request.
@@ -48,6 +60,10 @@ type L402Transport struct {
 	// EventLogger is the optional event logger for enriching payment
 	// events with HTTP response metadata.
 	EventLogger l402.EventLogger
+
+	// lastPayment stores the result of the most recent L402 payment.
+	// Read by the CLI to populate DownloadResult.
+	lastPayment atomic.Pointer[PaymentInfo]
 
 	// domainLocks provides per-domain locking to allow concurrent requests
 	// to different domains while serializing requests to the same domain.
@@ -225,6 +241,12 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	fmt.Fprintf(os.Stderr, "Payment complete, retrying request...\n")
 
+	// Record the payment info for DownloadResult population.
+	t.lastPayment.Store(&PaymentInfo{
+		AmountSat: int64(token.AmountPaid) / 1000,
+		FeeSat:    int64(token.RoutingFeePaid) / 1000,
+	})
+
 	// Retry the request with the paid token, mirroring the server's
 	// prefix choice.
 	retryResp, err := t.retryWithToken(req, token, prefix)
@@ -338,6 +360,12 @@ func bufferRequestBody(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// LastPayment returns the result of the most recent L402 payment, or
+// nil if no payment has been made during this transport's lifetime.
+func (t *L402Transport) LastPayment() *PaymentInfo {
+	return t.lastPayment.Load()
 }
 
 // classifyPaymentError inspects a HandleChallenge error and wraps it

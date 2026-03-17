@@ -93,8 +93,12 @@ type DownloadResult struct {
 	// L402FeeSat is the routing fee paid in satoshis.
 	L402FeeSat int64 `json:"l402_fee_sat,omitempty"`
 
-	// Duration is how long the request took.
+	// Duration is how long the request took (human-readable).
 	Duration string `json:"duration"`
+
+	// DurationMs is the request duration in milliseconds for
+	// machine-readable consumption.
+	DurationMs int64 `json:"duration_ms"`
 }
 
 // TokenInfo represents information about a stored token.

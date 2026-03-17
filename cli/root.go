@@ -310,7 +310,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if outputPath != "" {
 		progress := client.NewProgress(flags.quiet || flags.noProgress)
 
-		err = httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
+		result, err := httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
 			Resume:   flags.resume,
 			Progress: progress,
 		})
@@ -319,6 +319,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 
 		progress.Finish()
+
+		// Emit structured JSON result when --json is active.
+		if isJSONOutput(cmd) {
+			return writeJSON(os.Stdout, result)
+		}
 
 		if !flags.quiet {
 			fmt.Fprintf(os.Stderr, "Downloaded to: %s\n", outputPath)
