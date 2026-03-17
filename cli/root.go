@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -81,6 +82,9 @@ var flags struct {
 
 	// Allow insecure connections.
 	insecure bool
+
+	// JSON request parameters (agent-first input).
+	params string
 }
 
 // NewRootCmd creates the main lnget command.
@@ -109,7 +113,7 @@ the existing token without additional payments.`,
   # Resume interrupted download
   lnget -c https://api.example.com/large-file.zip`,
 		Version: build.Version(),
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.RangeArgs(0, 1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initLogging()
 		},
@@ -167,6 +171,10 @@ the existing token without additional payments.`,
 	cmd.Flags().BoolVarP(&flags.insecure, "insecure", "k", false,
 		"Allow insecure TLS connections")
 
+	// Agent-first JSON input.
+	cmd.Flags().StringVar(&flags.params, "params", "",
+		"JSON request parameters (overrides individual flags)")
+
 	// Add subcommands.
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewTokensCmd())
@@ -177,9 +185,84 @@ the existing token without additional payments.`,
 	return cmd
 }
 
+// RequestParams is the JSON structure accepted by --params for
+// agent-first request specification. When --params is set, its fields
+// override individual CLI flags.
+type RequestParams struct {
+	// URL is the target URL.
+	URL string `json:"url"`
+
+	// Method is the HTTP method (default: GET).
+	Method string `json:"method,omitempty"`
+
+	// Headers is a map of custom request headers.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Data is the request body for POST/PUT.
+	Data string `json:"data,omitempty"`
+
+	// Output is the output file path.
+	Output string `json:"output,omitempty"`
+
+	// MaxCost is the maximum invoice amount in satoshis.
+	MaxCost *int64 `json:"max_cost,omitempty"`
+
+	// MaxFee is the maximum routing fee in satoshis.
+	MaxFee *int64 `json:"max_fee,omitempty"`
+}
+
 // runGet executes the main download command.
 func runGet(cmd *cobra.Command, args []string) error {
-	url := args[0]
+	// Resolve the URL from either positional args or --params.
+	var url string
+
+	if flags.params != "" {
+		var params RequestParams
+
+		err := json.Unmarshal([]byte(flags.params), &params)
+		if err != nil {
+			return ErrInvalidArgsf("invalid --params JSON: %v", err)
+		}
+
+		// Apply params fields to flags.
+		if params.URL != "" {
+			url = params.URL
+		}
+
+		if params.Method != "" {
+			flags.method = params.Method
+		}
+
+		if params.Data != "" {
+			flags.data = params.Data
+		}
+
+		if params.Output != "" {
+			flags.output = params.Output
+		}
+
+		if params.MaxCost != nil {
+			flags.maxCost = *params.MaxCost
+		}
+
+		if params.MaxFee != nil {
+			flags.maxFee = *params.MaxFee
+		}
+
+		// Convert headers map to slice.
+		for k, v := range params.Headers {
+			flags.headers = append(flags.headers, k+": "+v)
+		}
+	}
+
+	// If URL wasn't in --params, use positional arg.
+	if url == "" && len(args) > 0 {
+		url = args[0]
+	}
+
+	if url == "" {
+		return ErrInvalidArgsf("URL required (as argument or in --params)")
+	}
 
 	// Validate the URL against common hallucination patterns.
 	_, err := validateURL(url)
