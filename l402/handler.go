@@ -135,7 +135,12 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 			"challenge: %w", err)
 	}
 
-	// Store the pending token before payment to handle interruptions.
+	// Remove any stale token (paid or pending) left by a previous
+	// failed attempt before storing the new pending token.
+	_ = h.store.RemoveToken(domain)
+
+	// Store the pending token before payment to handle
+	// interruptions.
 	err = h.store.StorePending(domain, token)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to store pending "+

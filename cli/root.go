@@ -344,11 +344,34 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 				err)
 		}
 
+		// If no explicit session ID or pairing phrase is configured,
+		// try to use the most recent saved session.
+		sessionID := cfg.LN.LNC.SessionID
+		pairingPhrase := cfg.LN.LNC.PairingPhrase
+
+		if sessionID == "" && pairingPhrase == "" {
+			sessions, listErr := sessionStore.ListSessions()
+			if listErr == nil && len(sessions) > 0 {
+				// Use the most recently created session.
+				latest := sessions[0]
+				for _, s := range sessions[1:] {
+					if s.Created.After(latest.Created) {
+						latest = s
+					}
+				}
+
+				sessionID = latest.ID
+
+				log.Infof("Using saved LNC session: %s",
+					sessionID)
+			}
+		}
+
 		return ln.NewLNCBackend(&ln.LNCConfig{
-			PairingPhrase: cfg.LN.LNC.PairingPhrase,
+			PairingPhrase: pairingPhrase,
 			MailboxAddr:   cfg.LN.LNC.MailboxAddr,
 			SessionStore:  sessionStore,
-			SessionID:     cfg.LN.LNC.SessionID,
+			SessionID:     sessionID,
 			Ephemeral:     cfg.LN.LNC.Ephemeral,
 		})
 

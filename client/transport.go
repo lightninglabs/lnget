@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/lightninglabs/lnget/l402"
@@ -138,6 +139,11 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	log.Infof("Received L402 challenge for %s", domain)
 
+	// Print payment status to stderr so the user knows what's
+	// happening.
+	fmt.Fprintf(os.Stderr, "L402 payment required for %s, paying...\n",
+		domain)
+
 	// Close the challenge response body since we'll retry after
 	// payment.
 	_, _ = io.Copy(io.Discard, challengeResp.Body)
@@ -163,8 +169,12 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Context(), challengeResp, domain,
 	)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Payment failed: %v\n", err)
+
 		return nil, fmt.Errorf("L402 payment failed: %w", err)
 	}
+
+	fmt.Fprintf(os.Stderr, "Payment complete, retrying request...\n")
 
 	// Retry the request with the paid token, mirroring the server's
 	// prefix choice.

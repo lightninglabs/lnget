@@ -67,6 +67,9 @@ environment variable. Using --stdin or the env var avoids leaking
 the phrase into shell history and process listings.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			log.Infof("Resolving pairing phrase (fromStdin=%v, "+
+				"nArgs=%d)", fromStdin, len(args))
+
 			pairingPhrase, err := resolvePairingPhrase(
 				args, fromStdin,
 				&stdinPhraseReader{}, os.Stderr,
@@ -74,6 +77,9 @@ the phrase into shell history and process listings.`,
 			if err != nil {
 				return err
 			}
+
+			log.Infof("Pairing phrase resolved (len=%d)",
+				len(pairingPhrase))
 
 			cfg, err := config.LoadConfig(flags.configFile)
 			if err != nil {
