@@ -157,6 +157,15 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 	return token, nil
 }
 
+// InvalidateToken removes a cached token for a domain. This is called
+// when the server rejects a previously valid token (e.g. due to
+// expiry, root key rotation, or revocation), so the transport can
+// proceed to HandleChallenge with a fresh payment instead of
+// re-discovering the stale token.
+func (h *Handler) InvalidateToken(domain string) error {
+	return h.store.RemoveToken(domain)
+}
+
 // HasPendingPayment checks if there's a pending payment for a domain.
 func (h *Handler) HasPendingPayment(domain string) bool {
 	return h.store.HasPendingPayment(domain)

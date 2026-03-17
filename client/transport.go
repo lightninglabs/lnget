@@ -54,6 +54,11 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	domain := l402.DomainFromURL(req.URL)
 
+	// challengeResp holds the 402 response to use for HandleChallenge.
+	// It may come from Path A's rejection (if the server bundles a
+	// fresh challenge) or from the unauthenticated Path B request.
+	var challengeResp *http.Response
+
 	// Try to get an existing token for this domain.
 	token, err := t.Handler.GetTokenForDomain(domain)
 	if err == nil {
@@ -78,26 +83,50 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return resp, nil
 		}
 
-		// Token didn't work (maybe expired), close the body and
-		// continue to payment flow.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
+		// Token was rejected by the server (expired, revoked, or
+		// root key rotated). Evict it from the store so Path B's
+		// double-check doesn't rediscover the same stale token
+		// and skip HandleChallenge entirely.
+		//
+		// NOTE: If eviction fails (e.g. filesystem error), we
+		// continue anyway. Path B's double-check will find the
+		// stale token and retry with it, returning a 402. This
+		// is no worse than the pre-fix behavior.
+		_ = t.Handler.InvalidateToken(domain)
+
+		// If the rejection 402 itself contains a fresh L402
+		// challenge, we can use it directly instead of sending
+		// another unauthenticated request. This saves a round
+		// trip when the server bundles the new challenge with
+		// the rejection.
+		if l402.IsL402Challenge(resp) {
+			challengeResp = resp
+		} else {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
 	}
 
-	// Make the initial request without a token.
-	resp, err := t.Base.RoundTrip(req)
-	if err != nil {
-		return nil, err
+	// If Path A's rejection didn't include a fresh challenge, send
+	// an unauthenticated request to get one.
+	if challengeResp == nil {
+		resp, err := t.Base.RoundTrip(req)
+		if err != nil {
+			return nil, err
+		}
+
+		// If not a 402, return the response as-is.
+		if !l402.IsL402Challenge(resp) {
+			return resp, nil
+		}
+
+		challengeResp = resp
 	}
 
-	// If not a 402, return the response as-is.
-	if !l402.IsL402Challenge(resp) {
-		return resp, nil
-	}
-
-	// Close the 402 response body since we'll retry after payment.
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
+	// Close the challenge response body since we'll retry after
+	// payment.
+	_, _ = io.Copy(io.Discard, challengeResp.Body)
+	_ = challengeResp.Body.Close()
 
 	// Handle the L402 challenge with per-domain locking.
 	lock := t.getDomainLock(domain)
@@ -113,7 +142,9 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	// Pay the invoice and get the token.
-	token, err = t.Handler.HandleChallenge(req.Context(), resp, domain)
+	token, err = t.Handler.HandleChallenge(
+		req.Context(), challengeResp, domain,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("L402 payment failed: %w", err)
 	}

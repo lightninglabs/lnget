@@ -192,6 +192,79 @@ func TestHandlerRemovePendingNonExistent(t *testing.T) {
 	_ = handler.RemovePending(domain)
 }
 
+// TestHandlerInvalidateToken tests that InvalidateToken removes a cached
+// token, so subsequent GetTokenForDomain calls return ErrNoToken.
+func TestHandlerInvalidateToken(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewFileStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileStore() error = %v", err)
+	}
+
+	handler := NewHandler(&HandlerConfig{
+		Store:          store,
+		Payer:          &mockPayer{},
+		MaxCostSat:     1000,
+		MaxFeeSat:      10,
+		PaymentTimeout: time.Minute,
+	})
+
+	domain := "invalidate.example.com"
+
+	// Create a paid token via the binary round-trip constructor.
+	paymentHash := lntypes.Hash{
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24,
+		25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	mac := makeTestMacaroon(t, paymentHash)
+
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal macaroon: %v", err)
+	}
+
+	token, err := NewTokenFromChallenge(macBytes, paymentHash)
+	if err != nil {
+		t.Fatalf("NewTokenFromChallenge() error = %v", err)
+	}
+
+	// Mark the token as paid with a non-zero preimage.
+	token.Preimage = lntypes.Preimage{
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+		10, 20, 30, 40, 50, 60, 70, 80,
+	}
+
+	err = store.StoreToken(domain, token)
+	if err != nil {
+		t.Fatalf("StoreToken() error = %v", err)
+	}
+
+	// Token should be retrievable.
+	_, err = handler.GetTokenForDomain(domain)
+	if err != nil {
+		t.Fatalf("GetTokenForDomain() should find token: %v", err)
+	}
+
+	// Invalidate the token.
+	err = handler.InvalidateToken(domain)
+	if err != nil {
+		t.Fatalf("InvalidateToken() error = %v", err)
+	}
+
+	// Token should no longer be retrievable.
+	_, err = handler.GetTokenForDomain(domain)
+	if !errors.Is(err, ErrNoToken) {
+		t.Errorf("GetTokenForDomain() after invalidation = %v, "+
+			"want ErrNoToken", err)
+	}
+}
+
 // TestMockPayerRecordsInvoices tests that the mock payer records invoices.
 func TestMockPayerRecordsInvoices(t *testing.T) {
 	preimage := lntypes.Preimage{1, 2, 3, 4, 5, 6, 7, 8,
