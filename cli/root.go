@@ -155,10 +155,10 @@ the existing token without additional payments.`,
 	cmd.Flags().BoolVar(&flags.noPay, "no-pay", false,
 		"Don't pay invoices automatically")
 
-	// Output format flags.
-	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false,
+	// Output format flags — persistent so subcommands inherit them.
+	cmd.PersistentFlags().BoolVar(&flags.jsonOutput, "json", false,
 		"Force JSON output")
-	cmd.Flags().BoolVar(&flags.humanOutput, "human", false,
+	cmd.PersistentFlags().BoolVar(&flags.humanOutput, "human", false,
 		"Force human-readable output")
 	cmd.Flags().BoolVarP(&flags.verbose, "verbose", "v", false,
 		"Verbose output")
@@ -184,14 +184,38 @@ the existing token without additional payments.`,
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false,
 		"Preview the request without downloading or paying")
 
+	// Override the version template to support JSON output.
+	cmd.SetVersionTemplate(`{{with .Name}}{{printf "%s " .}}{{end}}{{printf "%s\n" .Version}}`)
+
 	// Add subcommands.
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewTokensCmd())
 	cmd.AddCommand(NewLNCmd())
 	cmd.AddCommand(NewServeCmd())
 	cmd.AddCommand(NewSchemaCmd())
+	cmd.AddCommand(newVersionJSONCmd())
 
 	return cmd
+}
+
+// newVersionJSONCmd creates a version subcommand that always emits
+// JSON, complementing the built-in --version flag.
+func newVersionJSONCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "version",
+		Short:  "Show version information as JSON",
+		Long:   "Display version, commit, and Go version as JSON.",
+		Hidden: false,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isJSONOutput(cmd) {
+				return writeJSON(os.Stdout, build.VersionInfo())
+			}
+
+			fmt.Println(build.Version())
+
+			return nil
+		},
+	}
 }
 
 // RequestParams is the JSON structure accepted by --params for
