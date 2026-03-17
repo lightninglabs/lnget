@@ -36,7 +36,12 @@ func newConfigShowCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Output as YAML.
+			// JSON mode emits the config as structured JSON.
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), cfg)
+			}
+
+			// Human mode uses YAML for readability.
 			data, err := yaml.Marshal(cfg)
 			if err != nil {
 				return fmt.Errorf("failed to marshal config: %w", err)
@@ -56,7 +61,16 @@ func newConfigPathCmd() *cobra.Command {
 		Short: "Show config file path",
 		Long:  "Display the path to the configuration file.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println(config.ConfigFilePath())
+			path := config.ConfigFilePath()
+
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), map[string]string{
+					"path": path,
+				})
+			}
+
+			fmt.Println(path)
+
 			return nil
 		},
 	}
@@ -98,6 +112,13 @@ This will create ~/.lnget/config.yaml with default settings.`,
 			err = os.WriteFile(configPath, data, 0600)
 			if err != nil {
 				return fmt.Errorf("failed to write config: %w", err)
+			}
+
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"created": true,
+					"path":    configPath,
+				})
 			}
 
 			fmt.Printf("Created config file: %s\n", configPath)
