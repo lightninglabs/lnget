@@ -32,6 +32,8 @@ func (n *NoopBackend) Stop() error {
 }
 
 // PayInvoice returns ErrNoBackend since no Lightning backend is available.
+//
+//nolint:whitespace,wsl_v5
 func (n *NoopBackend) PayInvoice(_ context.Context, _ string, _ int64,
 	_ time.Duration) (*PaymentResult, error) {
 

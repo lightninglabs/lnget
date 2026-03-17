@@ -116,6 +116,7 @@ linters:
       case:
         rules:
           json: snake
+          yaml: snake
 
     whitespace:
       multi-func: true
