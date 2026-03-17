@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -85,6 +87,9 @@ var flags struct {
 
 	// JSON request parameters (agent-first input).
 	params string
+
+	// Dry-run mode (preview without executing).
+	dryRun bool
 }
 
 // NewRootCmd creates the main lnget command.
@@ -174,6 +179,10 @@ the existing token without additional payments.`,
 	// Agent-first JSON input.
 	cmd.Flags().StringVar(&flags.params, "params", "",
 		"JSON request parameters (overrides individual flags)")
+
+	// Dry-run mode.
+	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false,
+		"Preview the request without downloading or paying")
 
 	// Add subcommands.
 	cmd.AddCommand(NewConfigCmd())
@@ -329,6 +338,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 	store, err := l402.NewFileStore(cfg.Tokens.Dir)
 	if err != nil {
 		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Dry-run mode: preview the request without downloading or paying.
+	if flags.dryRun {
+		return runDryRun(url, flags.output, store, cfg)
 	}
 
 	// Create the Lightning backend. If the backend fails to initialize
@@ -507,6 +521,77 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 	default:
 		return nil, fmt.Errorf("unknown LN backend mode: %s", cfg.LN.Mode)
 	}
+}
+
+// runDryRun performs a dry-run preview of a download request. It
+// checks the token cache, makes a HEAD request to detect 402
+// challenges, and reports what would happen without actually paying
+// or downloading.
+//
+//nolint:whitespace,wsl_v5
+func runDryRun(url, outputPath string, store l402.Store,
+	cfg *config.Config) error {
+
+	parsedURL, err := neturl.Parse(url)
+	if err != nil {
+		return ErrInvalidArgsf("failed to parse URL: %v", err)
+	}
+
+	domain := l402.DomainFromURL(parsedURL)
+
+	result := client.DryRunResult{
+		DryRun:      true,
+		URL:         url,
+		OutputPath:  outputPath,
+		MaxCostSats: cfg.L402.MaxCostSats,
+	}
+
+	// Check if we already have a valid token.
+	token, err := store.GetToken(domain)
+	if err == nil && token != nil {
+		result.HasCachedToken = !l402.IsPending(token)
+	}
+
+	// Make a HEAD request to check if the server requires L402.
+	headReq, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request: %w", err)
+	}
+
+	headReq.Header.Set("User-Agent", cfg.HTTP.UserAgent)
+
+	httpClient := &http.Client{Timeout: cfg.HTTP.Timeout}
+
+	resp, err := httpClient.Do(headReq)
+	if err != nil {
+		// Network errors are not fatal for dry-run; report them.
+		result.RequiresL402 = false
+
+		_ = writeJSON(os.Stdout, result)
+
+		return ErrDryRunPassedNew()
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	// Check if the server returned a 402 with L402 challenge.
+	if l402.IsL402Challenge(resp) {
+		result.RequiresL402 = true
+
+		// Try to parse the invoice amount from the challenge.
+		authHeader := resp.Header.Get("WWW-Authenticate")
+		challenge, parseErr := l402.ParseChallenge(authHeader)
+		if parseErr == nil {
+			result.InvoiceAmountSat = challenge.InvoiceAmount
+			result.WithinBudget = challenge.InvoiceAmount <= cfg.L402.MaxCostSats
+		}
+	}
+
+	_ = writeJSON(os.Stdout, result)
+
+	return ErrDryRunPassedNew()
 }
 
 // classifyError inspects an error from the HTTP client or download

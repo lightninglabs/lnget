@@ -296,6 +296,17 @@ func newTokensClearCmd() *cobra.Command {
 			}
 
 			if !force {
+				// In non-TTY mode (agent/pipe), require
+				// --force to prevent hanging on an
+				// interactive prompt agents can't respond
+				// to.
+				if !isTTY() {
+					return ErrInvalidArgsf(
+						"--force required in " +
+							"non-interactive mode",
+					)
+				}
+
 				fmt.Printf("This will remove %d token(s). Continue? [y/N] ",
 					len(domains))
 

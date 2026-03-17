@@ -101,6 +101,34 @@ type DownloadResult struct {
 	DurationMs int64 `json:"duration_ms"`
 }
 
+// DryRunResult represents the result of a --dry-run invocation. It
+// previews what would happen without making any payments or downloads.
+type DryRunResult struct {
+	// DryRun is always true, identifying this as a preview.
+	DryRun bool `json:"dry_run"`
+
+	// URL is the target URL.
+	URL string `json:"url"`
+
+	// OutputPath is where the file would be saved.
+	OutputPath string `json:"output_path,omitempty"`
+
+	// HasCachedToken indicates if a valid token exists for the domain.
+	HasCachedToken bool `json:"has_cached_token"`
+
+	// RequiresL402 indicates if the server responded with 402.
+	RequiresL402 bool `json:"requires_l402"`
+
+	// InvoiceAmountSat is the invoice amount from the 402 challenge.
+	InvoiceAmountSat int64 `json:"invoice_amount_sat,omitempty"`
+
+	// WithinBudget indicates if the invoice is within --max-cost.
+	WithinBudget bool `json:"within_budget,omitempty"`
+
+	// MaxCostSats is the configured maximum cost.
+	MaxCostSats int64 `json:"max_cost_sats"`
+}
+
 // TokenInfo represents information about a stored token.
 type TokenInfo struct {
 	// Domain is the domain the token is for.
