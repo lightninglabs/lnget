@@ -193,6 +193,7 @@ the existing token without additional payments.`,
 	cmd.AddCommand(NewLNCmd())
 	cmd.AddCommand(NewServeCmd())
 	cmd.AddCommand(NewSchemaCmd())
+	cmd.AddCommand(NewMCPCmd())
 	cmd.AddCommand(newVersionJSONCmd())
 
 	return cmd
