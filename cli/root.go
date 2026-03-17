@@ -180,6 +180,12 @@ the existing token without additional payments.`,
 func runGet(cmd *cobra.Command, args []string) error {
 	url := args[0]
 
+	// Validate the URL against common hallucination patterns.
+	_, err := validateURL(url)
+	if err != nil {
+		return err
+	}
+
 	// Load configuration.
 	cfg, err := config.LoadConfig(flags.configFile)
 	if err != nil {
@@ -303,6 +309,14 @@ func runGet(cmd *cobra.Command, args []string) error {
 		outputPath = filepath.Base(url)
 		if outputPath == "" || outputPath == "/" || outputPath == "." {
 			outputPath = "output"
+		}
+	}
+
+	// Validate the output path against traversal attacks.
+	if outputPath != "" {
+		outputPath, err = validateOutputPath(outputPath)
+		if err != nil {
+			return err
 		}
 	}
 

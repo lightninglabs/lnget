@@ -103,6 +103,10 @@ func newTokensShowCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain := args[0]
 
+			if err := validateDomain(domain); err != nil {
+				return err
+			}
+
 			cfg, err := config.LoadConfig(flags.configFile)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
@@ -161,6 +165,10 @@ func newTokensRemoveCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain := args[0]
+
+			if err := validateDomain(domain); err != nil {
+				return err
+			}
 
 			cfg, err := config.LoadConfig(flags.configFile)
 			if err != nil {
