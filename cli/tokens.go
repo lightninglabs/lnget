@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 
 	"github.com/lightninglabs/lnget/client"
@@ -71,15 +70,8 @@ func newTokensListCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(infos)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), infos)
 			}
 
 			// Human-readable output.
@@ -138,15 +130,8 @@ func newTokensShowCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(info)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), info)
 			}
 
 			// Human-readable output.

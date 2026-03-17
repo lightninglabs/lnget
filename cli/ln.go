@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -136,15 +135,8 @@ the phrase into shell history and process listings.`,
 				result["session_id"] = backend.Session().ID
 			}
 
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(result)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), result)
 			}
 
 			// Human-readable output.
@@ -304,15 +296,8 @@ func newLNCSessionsCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(sessions)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), sessions)
 			}
 
 			// Human-readable output.
@@ -458,15 +443,8 @@ func newLNStatusCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(status)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), status)
 			}
 
 			// Human-readable output.
@@ -536,15 +514,8 @@ func newLNInfoCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(info)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), info)
 			}
 
 			// Human-readable output.
@@ -632,15 +603,8 @@ The initial sync may take some time depending on network conditions.`,
 				"synced":       info.Synced,
 			}
 
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(result)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), result)
 			}
 
 			// Human-readable output.
@@ -703,15 +667,8 @@ Send BTC to this address to fund your wallet for future operations.`,
 				"network": cfg.LN.Neutrino.Network,
 			}
 
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(result)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), result)
 			}
 
 			// Human-readable output.
@@ -769,15 +726,8 @@ func newNeutrinoBalanceCmd() *cobra.Command {
 				"balance_btc": float64(balance) / 100000000,
 			}
 
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(result)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), result)
 			}
 
 			// Human-readable output.
@@ -839,15 +789,8 @@ func newNeutrinoStatusCmd() *cobra.Command {
 				"progress":     progress,
 			}
 
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(result)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), result)
 			}
 
 			// Human-readable output.
