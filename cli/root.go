@@ -3,8 +3,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -313,7 +315,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 			Progress: progress,
 		})
 		if err != nil {
-			return err
+			return classifyError(err)
 		}
 
 		progress.Finish()
@@ -328,7 +330,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Quiet mode: output to stdout.
 	resp, err := httpClient.Get(ctx, url)
 	if err != nil {
-		return err
+		return classifyError(err)
 	}
 
 	defer func() {
@@ -402,6 +404,40 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 	default:
 		return nil, fmt.Errorf("unknown LN backend mode: %s", cfg.LN.Mode)
 	}
+}
+
+// classifyError inspects an error from the HTTP client or download
+// path and wraps it with the appropriate CLIError for semantic exit
+// codes. Network errors get exit code 4, payment errors get 3, and
+// everything else gets the default general error.
+func classifyError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check for L402 payment sentinel errors from the transport.
+	if errors.Is(err, client.ErrPaymentExceedsMax) {
+		return WrapCLIError(
+			ExitInvalidArgs, "payment_too_expensive", err,
+		)
+	}
+
+	if errors.Is(err, client.ErrL402PaymentFailed) {
+		return ErrPaymentFailedWrap(err)
+	}
+
+	// Check for network-level errors (DNS, connection, timeout).
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return ErrNetworkErrorWrap(err)
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return ErrNetworkErrorWrap(err)
+	}
+
+	return err
 }
 
 // initLogging sets up file-based logging. Logs are always written to

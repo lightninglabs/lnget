@@ -4,6 +4,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,15 @@ import (
 
 	"github.com/lightninglabs/lnget/l402"
 )
+
+// ErrPaymentExceedsMax is returned when an L402 invoice amount exceeds
+// the configured maximum cost. Callers can check for this with
+// errors.Is to distinguish "too expensive" from other payment failures.
+var ErrPaymentExceedsMax = errors.New("invoice exceeds maximum cost")
+
+// ErrL402PaymentFailed is returned when an L402 payment fails for any
+// reason other than exceeding the max cost (e.g. no route, timeout).
+var ErrL402PaymentFailed = errors.New("L402 payment failed")
 
 // EventEnricher is the interface for enriching payment events with HTTP
 // response metadata after a successful retry. Implementations that also
@@ -210,7 +220,7 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Payment failed: %v\n", err)
 
-		return nil, fmt.Errorf("L402 payment failed: %w", err)
+		return nil, classifyPaymentError(err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Payment complete, retrying request...\n")
@@ -328,6 +338,19 @@ func bufferRequestBody(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// classifyPaymentError inspects a HandleChallenge error and wraps it
+// with the appropriate sentinel so callers can use errors.Is to
+// distinguish "too expensive" from general payment failures.
+func classifyPaymentError(err error) error {
+	// Use typed sentinel from the l402 handler rather than
+	// fragile string matching.
+	if errors.Is(err, l402.ErrInvoiceExceedsMax) {
+		return fmt.Errorf("%w: %v", ErrPaymentExceedsMax, err)
+	}
+
+	return fmt.Errorf("%w: %v", ErrL402PaymentFailed, err)
 }
 
 // WrappedTransport returns a transport that wraps an existing one with L402
