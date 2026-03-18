@@ -91,8 +91,8 @@ func ParseChallenge(header string) (*Challenge, error) {
 			header)
 	}
 
-	// Decode the macaroon from base64. Some servers use URL-safe
-	// base64, so we try standard first and fall back to URL-safe.
+	// Decode the macaroon from base64, trying standard encoding
+	// first then falling back to URL-safe (RFC 4648 §5).
 	macBase64 := matches[2]
 
 	macBytes, err := base64.StdEncoding.DecodeString(macBase64)
