@@ -302,8 +302,8 @@ func TestDecodeRequest(t *testing.T) {
 		{
 			name: "full charge request",
 			input: &ChargeRequest{
-				Amount:   "100",
-				Currency: "sat",
+				Amount:      "100",
+				Currency:    "sat",
 				Description: "Weather report for 94107",
 				MethodDetails: &LightningDetails{
 					Invoice:     "lnbc1u1p...",

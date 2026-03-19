@@ -130,13 +130,13 @@ func (h *Handler) HandleChallenge(ctx context.Context,
 	if challenge.Request == nil ||
 		challenge.Request.MethodDetails == nil {
 
-		return nil, fmt.Errorf("challenge request missing "+
+		return nil, fmt.Errorf("challenge request missing " +
 			"methodDetails")
 	}
 
 	details := challenge.Request.MethodDetails
 	if details.Invoice == "" {
-		return nil, fmt.Errorf("challenge request missing "+
+		return nil, fmt.Errorf("challenge request missing " +
 			"methodDetails.invoice")
 	}
 

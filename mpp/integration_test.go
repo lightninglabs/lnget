@@ -32,8 +32,8 @@ func TestIntegrationChargeFlow(t *testing.T) {
 
 	// Build the challenge request JSON.
 	chargeReq := &ChargeRequest{
-		Amount:   "100",
-		Currency: "sat",
+		Amount:      "100",
+		Currency:    "sat",
 		Description: "Test resource access",
 		MethodDetails: &LightningDetails{
 			Invoice:     "lnbcrt1u1test...",

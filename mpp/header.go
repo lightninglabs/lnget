@@ -199,31 +199,31 @@ func ParseChallenge(header string) (*Challenge, error) {
 	// Validate required parameters per Section 5.1.1.
 	id, ok := params["id"]
 	if !ok || id == "" {
-		return nil, fmt.Errorf("missing required parameter "+
+		return nil, fmt.Errorf("missing required parameter " +
 			"'id' in Payment challenge")
 	}
 
 	realm, ok := params["realm"]
 	if !ok || realm == "" {
-		return nil, fmt.Errorf("missing required parameter "+
+		return nil, fmt.Errorf("missing required parameter " +
 			"'realm' in Payment challenge")
 	}
 
 	method, ok := params["method"]
 	if !ok || method == "" {
-		return nil, fmt.Errorf("missing required parameter "+
+		return nil, fmt.Errorf("missing required parameter " +
 			"'method' in Payment challenge")
 	}
 
 	intent, ok := params["intent"]
 	if !ok || intent == "" {
-		return nil, fmt.Errorf("missing required parameter "+
+		return nil, fmt.Errorf("missing required parameter " +
 			"'intent' in Payment challenge")
 	}
 
 	rawRequest, ok := params["request"]
 	if !ok || rawRequest == "" {
-		return nil, fmt.Errorf("missing required parameter "+
+		return nil, fmt.Errorf("missing required parameter " +
 			"'request' in Payment challenge")
 	}
 
@@ -280,6 +280,6 @@ func FindPaymentChallenge(
 		return ParseChallenge(header)
 	}
 
-	return nil, fmt.Errorf("no Payment challenge found in "+
+	return nil, fmt.Errorf("no Payment challenge found in " +
 		"response headers")
 }
