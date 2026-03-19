@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/lightninglabs/lnget/client"
 	"github.com/lightninglabs/lnget/config"
 	"github.com/lightninglabs/lnget/events"
 	"github.com/lightninglabs/lnget/l402"
 	"github.com/lightninglabs/lnget/ln"
+	"github.com/lightninglabs/lnget/mpp"
 )
 
 // Service is the shared service layer for lnget. It encapsulates the
@@ -195,12 +197,43 @@ func (s *Service) DryRun(ctx context.Context, rawURL string) (*client.DryRunResu
 
 	if l402.IsL402Challenge(resp) {
 		result.RequiresL402 = true
+		result.RequiresPayment = true
+		result.PaymentScheme = "L402"
 
 		authHeader := resp.Header.Get("WWW-Authenticate")
 		challenge, parseErr := l402.ParseChallenge(authHeader)
 		if parseErr == nil {
 			result.InvoiceAmountSat = challenge.InvoiceAmount
 			result.WithinBudget = challenge.InvoiceAmount <= s.Cfg.L402.MaxCostSats
+		}
+	} else if mpp.IsPaymentChallenge(resp) {
+		result.RequiresPayment = true
+		result.PaymentScheme = "Payment"
+
+		challenge, parseErr := mpp.FindPaymentChallenge(resp)
+		if parseErr == nil && challenge.Request != nil {
+			// Use the request's amount field (in sats).
+			var amountSat int64
+			if challenge.Request.Amount != "" {
+				parsed, err := strconv.ParseInt(
+					challenge.Request.Amount, 10, 64,
+				)
+				if err == nil {
+					amountSat = parsed
+				}
+			}
+
+			// Fall back to BOLT11 HRP parsing.
+			if amountSat == 0 &&
+				challenge.Request.MethodDetails != nil {
+
+				amountSat = l402.ParseInvoiceAmountSat(
+					challenge.Request.MethodDetails.Invoice,
+				)
+			}
+
+			result.InvoiceAmountSat = amountSat
+			result.WithinBudget = amountSat <= s.Cfg.L402.MaxCostSats
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/lightninglabs/lnget/build"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightninglabs/lnget/events"
 	"github.com/lightninglabs/lnget/l402"
 	"github.com/lightninglabs/lnget/ln"
+	"github.com/lightninglabs/lnget/mpp"
 	"github.com/spf13/cobra"
 )
 
@@ -93,6 +95,9 @@ var flags struct {
 
 	// Print response body inline in JSON output.
 	printBody bool
+
+	// Preferred payment scheme when server offers both.
+	preferScheme string
 }
 
 // NewRootCmd creates the main lnget command.
@@ -171,6 +176,9 @@ Run 'lnget schema --all' for full machine-readable CLI introspection.`,
 		60*time.Second, "Payment timeout")
 	cmd.Flags().BoolVar(&flags.noPay, "no-pay", false,
 		"Don't pay invoices automatically")
+	cmd.Flags().StringVar(&flags.preferScheme, "prefer-scheme",
+		"l402",
+		"Preferred payment scheme: l402 or payment")
 
 	// Output format flags — persistent so subcommands inherit them.
 	cmd.PersistentFlags().BoolVar(&flags.jsonOutput, "json", false,
@@ -264,6 +272,10 @@ type RequestParams struct {
 
 	// MaxFee is the maximum routing fee in satoshis.
 	MaxFee *int64 `json:"max_fee,omitempty"`
+
+	// PreferScheme selects the preferred payment scheme when
+	// a server offers both ("l402" or "payment").
+	PreferScheme string `json:"prefer_scheme,omitempty"`
 }
 
 // resolveURL extracts the target URL from --params JSON or positional
@@ -305,6 +317,10 @@ func resolveURL(args []string) (string, error) {
 
 		if params.MaxFee != nil {
 			flags.maxFee = *params.MaxFee
+		}
+
+		if params.PreferScheme != "" {
+			flags.preferScheme = params.PreferScheme
 		}
 
 		// Convert headers map to slice.
@@ -357,6 +373,24 @@ func loadConfigWithOverrides(cmd *cobra.Command) (*config.Config, error) {
 
 	if cmd.Flags().Changed("no-pay") {
 		cfg.L402.AutoPay = !flags.noPay
+	}
+
+	if cmd.Flags().Changed("prefer-scheme") {
+		scheme := config.PreferScheme(flags.preferScheme)
+
+		switch scheme {
+		case config.PreferSchemeL402,
+			config.PreferSchemePayment:
+
+			cfg.Payment.PreferScheme = scheme
+
+		default:
+			return nil, ErrInvalidArgsf(
+				"invalid --prefer-scheme %q, "+
+					"must be \"l402\" or \"payment\"",
+				flags.preferScheme,
+			)
+		}
 	}
 
 	if flags.jsonOutput {
@@ -669,9 +703,13 @@ func runDryRun(url, outputPath string, store l402.Store,
 		_ = resp.Body.Close()
 	}()
 
-	// Check if the server returned a 402 with L402 challenge.
-	if l402.IsL402Challenge(resp) {
+	// Check if the server returned a 402 with a recognized
+	// challenge (L402 or Payment scheme).
+	switch {
+	case l402.IsL402Challenge(resp):
 		result.RequiresL402 = true
+		result.RequiresPayment = true
+		result.PaymentScheme = "L402"
 
 		// Try to parse the invoice amount from the challenge.
 		authHeader := resp.Header.Get("WWW-Authenticate")
@@ -680,11 +718,46 @@ func runDryRun(url, outputPath string, store l402.Store,
 			result.InvoiceAmountSat = challenge.InvoiceAmount
 			result.WithinBudget = challenge.InvoiceAmount <= cfg.L402.MaxCostSats
 		}
+
+	case mpp.IsPaymentChallenge(resp):
+		result.RequiresPayment = true
+		result.PaymentScheme = "Payment"
+
+		amountSat := parseMPPAmountFromResp(resp)
+		result.InvoiceAmountSat = amountSat
+		result.WithinBudget = amountSat <= cfg.L402.MaxCostSats
 	}
 
 	_ = writeJSON(os.Stdout, result)
 
 	return ErrDryRunPassedNew()
+}
+
+// parseMPPAmountFromResp extracts the invoice amount in satoshis from
+// an MPP Payment challenge response. It tries the request's amount
+// field first, then falls back to parsing the BOLT11 HRP.
+func parseMPPAmountFromResp(resp *http.Response) int64 {
+	challenge, err := mpp.FindPaymentChallenge(resp)
+	if err != nil || challenge.Request == nil {
+		return 0
+	}
+
+	if challenge.Request.Amount != "" {
+		parsed, parseErr := strconv.ParseInt(
+			challenge.Request.Amount, 10, 64,
+		)
+		if parseErr == nil && parsed > 0 {
+			return parsed
+		}
+	}
+
+	if challenge.Request.MethodDetails != nil {
+		return l402.ParseInvoiceAmountSat(
+			challenge.Request.MethodDetails.Invoice,
+		)
+	}
+
+	return 0
 }
 
 // classifyError inspects an error from the HTTP client or download

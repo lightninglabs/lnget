@@ -41,10 +41,28 @@ const (
 	OutputFormatHuman OutputFormat = "human"
 )
 
+// PreferScheme identifies which payment scheme to prefer when a server
+// offers multiple options.
+type PreferScheme string
+
+const (
+	// PreferSchemeL402 prefers L402 for its reusable macaroon
+	// tokens.
+	PreferSchemeL402 PreferScheme = "l402"
+
+	// PreferSchemePayment prefers the new Payment HTTP auth
+	// scheme.
+	PreferSchemePayment PreferScheme = "payment"
+)
+
 // Config holds all configuration for lnget.
 type Config struct {
 	// L402 contains L402 payment settings.
 	L402 L402Config `mapstructure:"l402" yaml:"l402" json:"l402"`
+
+	// Payment contains settings for the Payment HTTP
+	// Authentication Scheme (MPP).
+	Payment PaymentConfig `mapstructure:"payment" yaml:"payment" json:"payment"`
 
 	// Output contains output formatting settings.
 	Output OutputConfig `mapstructure:"output" yaml:"output" json:"output"`
@@ -60,6 +78,15 @@ type Config struct {
 
 	// Events contains event logging settings.
 	Events EventsConfig `mapstructure:"events" yaml:"events" json:"events"`
+}
+
+// PaymentConfig contains settings for the Payment HTTP Authentication
+// Scheme (draft-httpauth-payment-00).
+type PaymentConfig struct {
+	// PreferScheme controls which payment scheme to prefer when a
+	// server offers both L402 and Payment challenges. Valid values
+	// are "l402" (default) and "payment".
+	PreferScheme PreferScheme `mapstructure:"prefer_scheme" yaml:"prefer_scheme" json:"prefer_scheme"`
 }
 
 // L402Config contains L402 payment settings.
@@ -192,6 +219,9 @@ func DefaultConfig() *Config {
 			PaymentTimeout: DefaultPaymentTimeout,
 			AutoPay:        true,
 		},
+		Payment: PaymentConfig{
+			PreferScheme: PreferSchemeL402,
+		},
 		Output: OutputConfig{
 			Format:   OutputFormatJSON,
 			Progress: true,
@@ -283,6 +313,8 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 	v.SetDefault("l402.max_fee_sats", cfg.L402.MaxFeeSats)
 	v.SetDefault("l402.payment_timeout", cfg.L402.PaymentTimeout)
 	v.SetDefault("l402.auto_pay", cfg.L402.AutoPay)
+
+	v.SetDefault("payment.prefer_scheme", cfg.Payment.PreferScheme)
 
 	v.SetDefault("output.format", cfg.Output.Format)
 	v.SetDefault("output.progress", cfg.Output.Progress)
