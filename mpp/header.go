@@ -81,6 +81,10 @@ type Challenge struct {
 	// Opaque is the optional base64url-encoded server correlation
 	// data, echoed unchanged in the credential.
 	Opaque string
+
+	// Digest is the optional content digest of the request body
+	// per RFC 9530, echoed unchanged in the credential.
+	Digest string
 }
 
 // ChargeRequest is the decoded JSON from the challenge's request
@@ -240,6 +244,7 @@ func ParseChallenge(header string) (*Challenge, error) {
 		Expires:     params["expires"],
 		Description: params["description"],
 		Opaque:      params["opaque"],
+		Digest:      params["digest"],
 	}, nil
 }
 

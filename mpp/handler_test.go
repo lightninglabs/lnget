@@ -2,7 +2,9 @@ package mpp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,8 +31,10 @@ func (m *mockPayer) PayInvoice(_ context.Context, _ string,
 }
 
 // makeTestChallenge builds a WWW-Authenticate header for testing.
+// If payHashHex is empty, the paymentHash field is omitted so the
+// handler skips preimage verification.
 func makeTestChallenge(t *testing.T, amountSats string,
-	invoice string) string {
+	invoice string, payHashHex string) string {
 
 	t.Helper()
 
@@ -39,7 +43,7 @@ func makeTestChallenge(t *testing.T, amountSats string,
 		Currency: "sat",
 		MethodDetails: &LightningDetails{
 			Invoice:     invoice,
-			PaymentHash: "abc123def456",
+			PaymentHash: payHashHex,
 			Network:     "regtest",
 		},
 	}
@@ -64,6 +68,10 @@ func TestHandlerHandleChallengeSuccess(t *testing.T) {
 	var preimage lntypes.Preimage
 	copy(preimage[:], []byte("0123456789abcdef0123456789abcdef"))
 
+	// Compute the expected payment hash for preimage verification.
+	payHash := sha256.Sum256(preimage[:])
+	payHashHex := hex.EncodeToString(payHash[:])
+
 	payer := &mockPayer{
 		result: &l402.PaymentResult{
 			Preimage:       preimage,
@@ -81,7 +89,7 @@ func TestHandlerHandleChallengeSuccess(t *testing.T) {
 
 	// Build a 402 response with a Payment challenge.
 	challengeHeader := makeTestChallenge(t, "100",
-		"lnbcrt1u1p...")
+		"lnbcrt1u1p...", payHashHex)
 
 	resp := &http.Response{
 		StatusCode: http.StatusPaymentRequired,
@@ -138,9 +146,10 @@ func TestHandlerHandleChallengeExceedsMaxCost(t *testing.T) {
 		PaymentTimeout: 30 * time.Second,
 	})
 
-	// Challenge for 100 sats — exceeds max.
+	// Challenge for 100 sats — exceeds max. Empty hash since
+	// we won't reach the verification step.
 	challengeHeader := makeTestChallenge(t, "100",
-		"lnbcrt1u1p...")
+		"lnbcrt1u1p...", "")
 
 	resp := &http.Response{
 		StatusCode: http.StatusPaymentRequired,
@@ -211,7 +220,7 @@ func TestHandlerHandleChallengePaymentFailure(t *testing.T) {
 	})
 
 	challengeHeader := makeTestChallenge(t, "100",
-		"lnbcrt1u1p...")
+		"lnbcrt1u1p...", "")
 
 	resp := &http.Response{
 		StatusCode: http.StatusPaymentRequired,
@@ -414,6 +423,9 @@ func TestHandlerHandleChallengeWithEventLogger(t *testing.T) {
 	var preimage lntypes.Preimage
 	copy(preimage[:], []byte("0123456789abcdef0123456789abcdef"))
 
+	payHash := sha256.Sum256(preimage[:])
+	payHashHex := hex.EncodeToString(payHash[:])
+
 	payer := &mockPayer{
 		result: &l402.PaymentResult{
 			Preimage:       preimage,
@@ -432,7 +444,9 @@ func TestHandlerHandleChallengeWithEventLogger(t *testing.T) {
 		EventLogger:    logger,
 	})
 
-	challengeHeader := makeTestChallenge(t, "50", "lnbcrt500n1...")
+	challengeHeader := makeTestChallenge(
+		t, "50", "lnbcrt500n1...", payHashHex,
+	)
 
 	resp := &http.Response{
 		StatusCode: http.StatusPaymentRequired,

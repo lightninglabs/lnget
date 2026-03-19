@@ -2,6 +2,7 @@ package mpp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -139,6 +140,24 @@ func (h *Handler) HandleChallenge(ctx context.Context,
 			"methodDetails.invoice")
 	}
 
+	// Reject expired challenges before paying. Per Section 5.1.2,
+	// clients MUST NOT submit credentials for expired challenges.
+	if challenge.Expires != "" {
+		expiresAt, err := time.Parse(
+			time.RFC3339, challenge.Expires,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expires "+
+				"timestamp %q: %w",
+				challenge.Expires, err)
+		}
+
+		if time.Now().After(expiresAt) {
+			return nil, fmt.Errorf("challenge expired "+
+				"at %s", challenge.Expires)
+		}
+	}
+
 	// Determine the invoice amount. Prefer the request's amount
 	// field (in satoshis), fall back to parsing the BOLT11 HRP.
 	var invoiceAmountSat int64
@@ -217,6 +236,22 @@ func (h *Handler) HandleChallenge(ctx context.Context,
 		btclog.Hex("preimage_prefix", result.Preimage[:8]),
 		slog.String("amount", result.AmountPaid.String()),
 		slog.String("fee", result.RoutingFeePaid.String()))
+
+	// Verify the preimage matches the payment hash from the
+	// challenge. Per draft-lightning-charge-00 Section 9, step 6:
+	// compute SHA-256(preimage) and verify it equals the stored
+	// paymentHash. The LN layer guarantees this on settlement,
+	// but we verify as defense-in-depth.
+	if details.PaymentHash != "" {
+		preimageHash := sha256.Sum256(result.Preimage[:])
+		computedHex := hex.EncodeToString(preimageHash[:])
+
+		if computedHex != details.PaymentHash {
+			return nil, fmt.Errorf("preimage hash mismatch: "+
+				"computed %s, expected %s",
+				computedHex, details.PaymentHash)
+		}
+	}
 
 	durationMs := time.Since(startTime).Milliseconds()
 	amountSat := int64(result.AmountPaid.ToSatoshis())

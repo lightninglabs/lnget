@@ -81,6 +81,7 @@ func BuildChargeCredential(challenge *Challenge,
 			Expires:     challenge.Expires,
 			Description: challenge.Description,
 			Opaque:      challenge.Opaque,
+			Digest:      challenge.Digest,
 		},
 		Payload: ChargePayload{
 			Preimage: preimage,
