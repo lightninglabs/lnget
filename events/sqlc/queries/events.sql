@@ -2,8 +2,8 @@
 INSERT INTO events (
     domain, url, method, payment_hash, amount_sat,
     fee_sat, status, error_message, duration_ms,
-    content_type, response_size, status_code, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    content_type, response_size, status_code, scheme, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: EnrichEvent :exec
 UPDATE events SET

@@ -1,6 +1,6 @@
 .PHONY: lint lint-source docker-tools fmt fmt-check tidy-module tidy-module-check
 .PHONY: unit unit-cover unit-race check-go-version build install clean release
-.PHONY: itest itest-verbose help man
+.PHONY: itest itest-verbose help man sqlc
 .PHONY: dashboard-build build-production
 
 # Default target.
@@ -167,6 +167,10 @@ fmt: $(GOIMPORTS_BIN) #? Format code and fix imports
 fmt-check: fmt #? Verify code is formatted correctly
 	@$(call print, "Checking fmt results.")
 	if test -n "$$(git status --porcelain)"; then echo "code not formatted correctly, please run 'make fmt' again!"; git status; git diff; exit 1; fi
+
+sqlc: #? Regenerate sqlc query code from SQL schemas
+	@$(call print, "Generating sqlc.")
+	sqlc generate
 
 tidy-module: #? Run 'go mod tidy' for all modules
 	@$(call print, "Running 'go mod tidy' for all modules")
