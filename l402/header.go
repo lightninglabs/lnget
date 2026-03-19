@@ -124,7 +124,7 @@ func ParseChallenge(header string) (*Challenge, error) {
 	// Try to extract the invoice amount from the BOLT11 human-readable
 	// part. This is best-effort; if the invoice can't be parsed the
 	// amount stays zero and the caller can decide how to handle it.
-	amountSat := parseInvoiceAmountSat(invoice)
+	amountSat := ParseInvoiceAmountSat(invoice)
 
 	return &Challenge{
 		Macaroon:      macBytes,
@@ -179,7 +179,7 @@ var (
 	)
 )
 
-// parseInvoiceAmountSat extracts the invoice amount in satoshis from a
+// ParseInvoiceAmountSat extracts the invoice amount in satoshis from a
 // BOLT11 invoice string by parsing the human-readable part (HRP). Returns
 // 0 if the amount cannot be determined.
 //
@@ -189,7 +189,7 @@ var (
 //	u (micro) = 10^-6 BTC  = 100 sats
 //	n (nano)  = 10^-9 BTC  = 0.1 sats (amounts must be multiples of 10)
 //	p (pico)  = 10^-12 BTC = 0.0001 sats (amounts must be multiples of 10000)
-func parseInvoiceAmountSat(invoice string) int64 {
+func ParseInvoiceAmountSat(invoice string) int64 {
 	matches := bolt11AmountRegex.FindStringSubmatch(
 		strings.ToLower(invoice),
 	)
