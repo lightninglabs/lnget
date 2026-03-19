@@ -126,8 +126,8 @@ const insertEvent = `-- name: InsertEvent :execlastid
 INSERT INTO events (
     domain, url, method, payment_hash, amount_sat,
     fee_sat, status, error_message, duration_ms,
-    content_type, response_size, status_code, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    content_type, response_size, status_code, scheme, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEventParams struct {
@@ -143,6 +143,7 @@ type InsertEventParams struct {
 	ContentType  string
 	ResponseSize int64
 	StatusCode   int64
+	Scheme       string
 	CreatedAt    time.Time
 }
 
@@ -160,6 +161,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 		arg.ContentType,
 		arg.ResponseSize,
 		arg.StatusCode,
+		arg.Scheme,
 		arg.CreatedAt,
 	)
 	if err != nil {

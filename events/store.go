@@ -47,6 +47,12 @@ func (s *Store) Close() error {
 // RecordEvent inserts a new event into the store and returns the
 // inserted event ID.
 func (s *Store) RecordEvent(ctx context.Context, e *Event) (int64, error) {
+	// Default scheme to "l402" for backward compatibility.
+	scheme := e.Scheme
+	if scheme == "" {
+		scheme = "l402"
+	}
+
 	id, err := s.q.InsertEvent(ctx, sqlc.InsertEventParams{
 		Domain:       e.Domain,
 		Url:          e.URL,
@@ -60,6 +66,7 @@ func (s *Store) RecordEvent(ctx context.Context, e *Event) (int64, error) {
 		ContentType:  e.ContentType,
 		ResponseSize: e.ResponseSize,
 		StatusCode:   int64(e.StatusCode),
+		Scheme:       scheme,
 		CreatedAt:    e.CreatedAt.UTC(),
 	})
 	if err != nil {
@@ -80,8 +87,8 @@ func (s *Store) ListEvents(ctx context.Context,
 
 	query := "SELECT id, domain, url, method, payment_hash, " +
 		"amount_sat, fee_sat, status, error_message, duration_ms, " +
-		"content_type, response_size, status_code, created_at " +
-		"FROM events"
+		"content_type, response_size, status_code, scheme, " +
+		"created_at FROM events"
 
 	var conditions []string
 	var args []any
@@ -138,7 +145,7 @@ func (s *Store) ListEvents(ctx context.Context,
 			&e.PaymentHash, &e.AmountSat, &e.FeeSat,
 			&e.Status, &e.ErrorMessage, &e.DurationMs,
 			&e.ContentType, &e.ResponseSize, &e.StatusCode,
-			&createdAt,
+			&e.Scheme, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan event: %w",
