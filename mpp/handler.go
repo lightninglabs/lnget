@@ -187,7 +187,7 @@ func (h *Handler) HandleChallenge(ctx context.Context,
 
 	// Validate the amount is within the configured maximum.
 	if invoiceAmountSat > 0 && invoiceAmountSat > h.maxCostSat {
-		log.WarnS(ctx, "Invoice amount exceeds max cost", nil,
+		log.InfoS(ctx, "Invoice amount exceeds max cost",
 			slog.Int64("amount_sat", invoiceAmountSat),
 			slog.Int64("max_cost_sat", h.maxCostSat))
 

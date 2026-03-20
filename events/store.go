@@ -4,10 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/lightninglabs/lnget/events/sqlc"
 )
@@ -91,7 +89,7 @@ func (s *Store) ListEvents(ctx context.Context,
 	}
 
 	// Build nullable filter params. nil means "match all".
-	var domain, status interface{}
+	var domain, status any
 	if opts.Domain != "" {
 		domain = opts.Domain
 	}
@@ -236,28 +234,6 @@ func runMigrations(db *sql.DB) error {
 	}
 
 	return nil
-}
-
-// parseTime attempts to parse a timestamp string using multiple formats.
-// SQLite may return timestamps in different formats depending on how they
-// were inserted (RFC3339 vs CURRENT_TIMESTAMP format).
-func parseTime(s string) time.Time {
-	formats := []string{
-		time.RFC3339,
-		"2006-01-02 15:04:05",
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05",
-	}
-
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t
-		}
-	}
-
-	log.Printf("warning: failed to parse timestamp %q", s)
-
-	return time.Time{}
 }
 
 // toString converts an interface{} value to string, returning an empty
