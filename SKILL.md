@@ -31,8 +31,12 @@ automatically pays the Lightning invoice and retries the request.
 ## Quick Reference
 
 ```bash
-# Download with JSON result
-lnget --json https://api.example.com/data.json
+# JSON metadata + inline response body
+lnget --json --print-body https://api.example.com/data.json
+
+# Pipe raw response body to stdout
+lnget -q https://api.example.com/data.json | jq .
+lnget -o - https://api.example.com/data.json
 
 # Preview payment without executing
 lnget --dry-run https://api.example.com/paid-endpoint
@@ -53,7 +57,13 @@ lnget ln status --json
 ## Key Rules
 
 1. Always use `--json` for machine-readable output
-2. Use `--dry-run` before making payments
-3. Use `--fields` to limit output to needed fields
-4. Use `--force` on destructive commands (tokens clear)
-5. Check `lnget schema <command>` for parameter details
+2. Use `--print-body` with `--json` to get response content inline
+3. Use `--dry-run` before making payments
+4. Use `-q` or `-o -` when you only want the raw response body
+5. Use `--fields` to limit output to needed fields
+6. Use `--force` on destructive commands (tokens clear)
+7. Check `lnget schema <command>` for parameter details
+
+## Full skill documentation
+
+See `skills/lnget/SKILL.md` for comprehensive usage guide.

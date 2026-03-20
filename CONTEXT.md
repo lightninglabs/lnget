@@ -3,8 +3,12 @@
 ## Quick Start
 
 ```bash
-# Always use --json for machine-readable output
-lnget --json https://api.example.com/data.json
+# JSON metadata + inline response body
+lnget --json --print-body https://api.example.com/data.json
+
+# Pipe raw body to stdout
+lnget -q https://api.example.com/data.json | jq .
+lnget -o - https://api.example.com/data.json
 
 # Preview before paying (no mutations)
 lnget --dry-run https://api.example.com/paid-endpoint
@@ -19,8 +23,10 @@ lnget --json --params '{"url": "https://api.example.com/data", "max_cost": 500}'
 ## Preferred Invocation Patterns
 
 - **ALWAYS** use `--json` when invoking programmatically
+- **ALWAYS** use `--print-body` with `--json` to get response content inline
 - **ALWAYS** use `--dry-run` before mutating operations (payments)
 - **ALWAYS** use `--fields` on list commands to limit output size
+- **PREFER** `-q` or `-o -` when you only need the raw response body
 - **NEVER** pass user-provided strings directly as domain args without
   validation (the CLI validates, but defense in depth)
 - **NEVER** omit `--force` on destructive commands in non-interactive mode
@@ -42,8 +48,20 @@ agent, output is always JSON unless `--human` is explicitly set.
   "l402_amount_sat": 100,
   "l402_fee_sat": 1,
   "duration": "1.234s",
-  "duration_ms": 1234
+  "duration_ms": 1234,
+  "body": "{...}"
 }
+```
+
+Note: `body` is only present when `--print-body` is set. Limited to text
+content types under 1MB.
+
+```bash
+# Without --print-body: body goes to file, JSON has metadata only
+lnget --json https://example.com/data  # body saved to ./data
+
+# With --print-body: body embedded in JSON output
+lnget --json --print-body https://example.com/data  # body in "body" field
 ```
 
 ### Dry-Run Result (stdout)
