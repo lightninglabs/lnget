@@ -81,6 +81,55 @@ func TestParseChallengeValid(t *testing.T) {
 	}
 }
 
+// TestParseChallengeURLSafeBase64 tests parsing an L402 challenge where
+// the macaroon is encoded with URL-safe base64 (using - and _ instead of
+// + and /). Some servers in the wild use this variant.
+func TestParseChallengeURLSafeBase64(t *testing.T) {
+	paymentHash := lntypes.Hash{
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24,
+		25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	mac := makeTestMacaroon(t, paymentHash)
+
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal macaroon: %v", err)
+	}
+
+	// Encode with URL-safe base64 (no padding).
+	macBase64 := base64.RawURLEncoding.EncodeToString(macBytes)
+
+	// Sanity-check that the URL-safe encoding actually differs from
+	// standard, so we know the fallback path is exercised.
+	stdEncoded := base64.StdEncoding.EncodeToString(macBytes)
+	if macBase64 == stdEncoded {
+		t.Fatal("test macaroon encodes identically in both " +
+			"schemes, fallback not exercised")
+	}
+
+	invoice := "lnbc100n1ptest..."
+
+	header := "L402 macaroon=\"" + macBase64 +
+		"\", invoice=\"" + invoice + "\""
+
+	challenge, err := ParseChallenge(header)
+	if err != nil {
+		t.Fatalf("ParseChallenge() error = %v", err)
+	}
+
+	if challenge.Invoice != invoice {
+		t.Errorf("Invoice = %q, want %q",
+			challenge.Invoice, invoice)
+	}
+
+	if challenge.PaymentHash != paymentHash {
+		t.Errorf("PaymentHash mismatch")
+	}
+}
+
 // TestParseChallengeInvalidFormat tests parsing invalid L402 challenges.
 func TestParseChallengeInvalidFormat(t *testing.T) {
 	tests := []struct {
