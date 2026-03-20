@@ -23,6 +23,18 @@ SELECT
     COUNT(DISTINCT CASE WHEN status = 'success' THEN domain END) AS domains_accessed
 FROM events;
 
+-- name: ListEvents :many
+SELECT
+    id, domain, url, method, payment_hash,
+    amount_sat, fee_sat, status, error_message, duration_ms,
+    content_type, response_size, status_code, scheme, created_at
+FROM events
+WHERE (sqlc.narg('domain') IS NULL OR domain = sqlc.narg('domain'))
+  AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
+ORDER BY created_at DESC
+LIMIT sqlc.arg('query_limit')
+OFFSET sqlc.arg('query_offset');
+
 -- name: GetSpendingByDomain :many
 SELECT
     domain,

@@ -169,3 +169,85 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 	}
 	return result.LastInsertId()
 }
+
+const listEvents = `-- name: ListEvents :many
+SELECT
+    id, domain, url, method, payment_hash,
+    amount_sat, fee_sat, status, error_message, duration_ms,
+    content_type, response_size, status_code, scheme, created_at
+FROM events
+WHERE (?1 IS NULL OR domain = ?1)
+  AND (?2 IS NULL OR status = ?2)
+ORDER BY created_at DESC
+LIMIT ?4
+OFFSET ?3
+`
+
+type ListEventsParams struct {
+	Domain      interface{}
+	Status      interface{}
+	QueryOffset int64
+	QueryLimit  int64
+}
+
+type ListEventsRow struct {
+	ID           int64
+	Domain       string
+	Url          string
+	Method       string
+	PaymentHash  string
+	AmountSat    int64
+	FeeSat       int64
+	Status       string
+	ErrorMessage string
+	DurationMs   int64
+	ContentType  string
+	ResponseSize int64
+	StatusCode   int64
+	Scheme       string
+	CreatedAt    time.Time
+}
+
+func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListEventsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEvents,
+		arg.Domain,
+		arg.Status,
+		arg.QueryOffset,
+		arg.QueryLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventsRow{}
+	for rows.Next() {
+		var i ListEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Domain,
+			&i.Url,
+			&i.Method,
+			&i.PaymentHash,
+			&i.AmountSat,
+			&i.FeeSat,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.DurationMs,
+			&i.ContentType,
+			&i.ResponseSize,
+			&i.StatusCode,
+			&i.Scheme,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

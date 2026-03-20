@@ -79,86 +79,57 @@ func (s *Store) RecordEvent(ctx context.Context, e *Event) (int64, error) {
 	return id, nil
 }
 
-// ListEvents returns events matching the given options. This uses
-// hand-written SQL because the WHERE clause is dynamic based on the
-// filter parameters.
+// ListEvents returns events matching the given options using the
+// sqlc-generated query with nullable filter parameters.
 func (s *Store) ListEvents(ctx context.Context,
 	opts ListOpts) ([]*Event, error) {
 
-	query := "SELECT id, domain, url, method, payment_hash, " +
-		"amount_sat, fee_sat, status, error_message, duration_ms, " +
-		"content_type, response_size, status_code, scheme, " +
-		"created_at FROM events"
+	// Default limit to 100 if not specified.
+	limit := int64(opts.Limit)
+	if limit <= 0 {
+		limit = 100
+	}
 
-	var conditions []string
-	var args []any
-
+	// Build nullable filter params. nil means "match all".
+	var domain, status interface{}
 	if opts.Domain != "" {
-		conditions = append(conditions, "domain = ?")
-		args = append(args, opts.Domain)
+		domain = opts.Domain
 	}
 
 	if opts.Status != "" {
-		conditions = append(conditions, "status = ?")
-		args = append(args, opts.Status)
+		status = opts.Status
 	}
 
-	if len(conditions) > 0 {
-		//nolint:gosec // G202: conditions use parameterized ? placeholders.
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	query += " ORDER BY created_at DESC"
-
-	if opts.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, opts.Limit)
-	} else {
-		query += " LIMIT 100"
-	}
-
-	if opts.Offset > 0 {
-		query += " OFFSET ?"
-		args = append(args, opts.Offset)
-	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.q.ListEvents(ctx, sqlc.ListEventsParams{
+		Domain:      domain,
+		Status:      status,
+		QueryLimit:  limit,
+		QueryOffset: int64(opts.Offset),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query events: %w",
 			MapSQLError(err))
 	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			log.Printf("warning: failed to close rows: %v", err)
-		}
-	}()
 
-	var events []*Event
-
-	for rows.Next() {
-		e := &Event{}
-
-		var createdAt string
-
-		err := rows.Scan(
-			&e.ID, &e.Domain, &e.URL, &e.Method,
-			&e.PaymentHash, &e.AmountSat, &e.FeeSat,
-			&e.Status, &e.ErrorMessage, &e.DurationMs,
-			&e.ContentType, &e.ResponseSize, &e.StatusCode,
-			&e.Scheme, &createdAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan event: %w",
-				MapSQLError(err))
-		}
-
-		e.CreatedAt = parseTime(createdAt)
-		events = append(events, e)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate events: %w",
-			MapSQLError(err))
+	events := make([]*Event, 0, len(rows))
+	for _, r := range rows {
+		events = append(events, &Event{
+			ID:           r.ID,
+			Domain:       r.Domain,
+			URL:          r.Url,
+			Method:       r.Method,
+			PaymentHash:  r.PaymentHash,
+			AmountSat:    r.AmountSat,
+			FeeSat:       r.FeeSat,
+			Status:       r.Status,
+			ErrorMessage: r.ErrorMessage,
+			DurationMs:   r.DurationMs,
+			ContentType:  r.ContentType,
+			ResponseSize: r.ResponseSize,
+			StatusCode:   int(r.StatusCode),
+			Scheme:       r.Scheme,
+			CreatedAt:    r.CreatedAt,
+		})
 	}
 
 	return events, nil
