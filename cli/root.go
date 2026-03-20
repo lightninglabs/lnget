@@ -769,14 +769,14 @@ func classifyError(err error) error {
 		return nil
 	}
 
-	// Check for L402 payment sentinel errors from the transport.
+	// Check for payment sentinel errors from the transport.
 	if errors.Is(err, client.ErrPaymentExceedsMax) {
 		return WrapCLIError(
 			ExitInvalidArgs, "payment_too_expensive", err,
 		)
 	}
 
-	if errors.Is(err, client.ErrL402PaymentFailed) {
+	if errors.Is(err, client.ErrPaymentFailed) {
 		return ErrPaymentFailedWrap(err)
 	}
 

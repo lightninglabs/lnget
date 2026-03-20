@@ -22,10 +22,6 @@ import (
 // to distinguish "too expensive" from other payment failures.
 var ErrPaymentExceedsMax = errors.New("invoice exceeds maximum cost")
 
-// ErrL402PaymentFailed is returned when an L402 payment fails for any
-// reason other than exceeding the max cost (e.g. no route, timeout).
-var ErrL402PaymentFailed = errors.New("L402 payment failed")
-
 // ErrPaymentFailed is returned when a payment fails for any reason
 // other than exceeding the max cost (e.g. no route, timeout).
 var ErrPaymentFailed = errors.New("payment failed")
