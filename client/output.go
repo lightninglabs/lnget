@@ -84,14 +84,21 @@ type DownloadResult struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int `json:"status_code"`
 
-	// L402Paid indicates if an L402 payment was made.
+	// L402Paid indicates if a payment was made (any scheme).
+	// Kept as "l402_paid" for backward compatibility.
 	L402Paid bool `json:"l402_paid"`
 
 	// L402AmountSat is the amount paid in satoshis.
+	// Kept as "l402_amount_sat" for backward compatibility.
 	L402AmountSat int64 `json:"l402_amount_sat,omitempty"`
 
 	// L402FeeSat is the routing fee paid in satoshis.
+	// Kept as "l402_fee_sat" for backward compatibility.
 	L402FeeSat int64 `json:"l402_fee_sat,omitempty"`
+
+	// PaymentScheme identifies which scheme was used (e.g.
+	// "L402", "Payment"). Empty if no payment was made.
+	PaymentScheme string `json:"payment_scheme,omitempty"`
 
 	// Duration is how long the request took (human-readable).
 	Duration string `json:"duration"`
@@ -118,13 +125,24 @@ type DryRunResult struct {
 	// OutputPath is where the file would be saved.
 	OutputPath string `json:"output_path,omitempty"`
 
-	// HasCachedToken indicates if a valid token exists for the domain.
+	// HasCachedToken indicates if a valid token exists for the
+	// domain.
 	HasCachedToken bool `json:"has_cached_token"`
 
-	// RequiresL402 indicates if the server responded with 402.
+	// RequiresL402 indicates if the server responded with an L402
+	// challenge. Kept for backward compatibility.
 	RequiresL402 bool `json:"requires_l402"`
 
-	// InvoiceAmountSat is the invoice amount from the 402 challenge.
+	// RequiresPayment indicates if the server responded with any
+	// payment challenge (L402 or Payment scheme).
+	RequiresPayment bool `json:"requires_payment"`
+
+	// PaymentScheme identifies which challenge type was detected
+	// (e.g. "L402", "Payment"). Empty if no challenge.
+	PaymentScheme string `json:"payment_scheme,omitempty"`
+
+	// InvoiceAmountSat is the invoice amount from the 402
+	// challenge.
 	InvoiceAmountSat int64 `json:"invoice_amount_sat,omitempty"`
 
 	// WithinBudget indicates if the invoice is within --max-cost.

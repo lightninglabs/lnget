@@ -12,6 +12,8 @@ import (
 	"github.com/lightninglabs/lnget/config"
 	"github.com/lightninglabs/lnget/l402"
 	"github.com/lightninglabs/lnget/ln"
+	"github.com/lightninglabs/lnget/mpp"
+	"github.com/lightninglabs/lnget/payment"
 )
 
 // Client is the main HTTP client with L402 support.
@@ -22,10 +24,10 @@ type Client struct {
 	// handler is the L402 payment handler.
 	handler *l402.Handler
 
-	// l402Transport is the L402-aware transport layer. Stored
+	// transport is the payment-aware transport layer. Stored
 	// separately so callers can read LastPayment() for result
 	// population.
-	l402Transport *L402Transport
+	transport *PaymentTransport
 
 	// store is the per-domain token store.
 	store l402.Store
@@ -84,8 +86,23 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 		}
 	}
 
-	// Wrap with L402 transport.
-	transport := NewL402Transport(baseTransport, handler)
+	// Build the payment scheme list. Both L402 and MPP (Payment
+	// HTTP Auth) are always available. The order determines
+	// preference when a server offers both: the first scheme
+	// whose DetectChallenge returns true wins.
+	l402Scheme := l402.NewL402Scheme(handler)
+	mppScheme := mpp.NewMPPScheme(mpp.NewHandler(&mpp.HandlerConfig{
+		Payer:          cfg.Backend,
+		MaxCostSat:     cfg.Config.L402.MaxCostSats,
+		MaxFeeSat:      cfg.Config.L402.MaxFeeSats,
+		PaymentTimeout: cfg.Config.L402.PaymentTimeout,
+		EventLogger:    cfg.EventLogger,
+	}))
+
+	schemes := orderSchemes(
+		l402Scheme, mppScheme, cfg.Config.Payment.PreferScheme,
+	)
+	transport := NewPaymentTransport(baseTransport, schemes)
 	transport.EventLogger = cfg.EventLogger
 
 	// Create the HTTP client.
@@ -105,13 +122,13 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		httpClient:    httpClient,
-		handler:       handler,
-		l402Transport: transport,
-		store:         cfg.Store,
-		backend:       cfg.Backend,
-		cfg:           cfg.Config,
-		output:        NewOutput(cfg.Config.Output.Format),
+		httpClient: httpClient,
+		handler:    handler,
+		transport:  transport,
+		store:      cfg.Store,
+		backend:    cfg.Backend,
+		cfg:        cfg.Config,
+		output:     NewOutput(cfg.Config.Output.Format),
 	}, nil
 }
 
@@ -235,11 +252,12 @@ func (c *Client) Download(ctx context.Context, url string, outputPath string,
 		DurationMs:  duration.Milliseconds(),
 	}
 
-	// Attach L402 payment info if a payment was made.
-	if payment := c.l402Transport.LastPayment(); payment != nil {
+	// Attach payment info if a payment was made.
+	if pmtInfo := c.transport.LastPayment(); pmtInfo != nil {
 		result.L402Paid = true
-		result.L402AmountSat = payment.AmountSat
-		result.L402FeeSat = payment.FeeSat
+		result.L402AmountSat = pmtInfo.AmountSat
+		result.L402FeeSat = pmtInfo.FeeSat
+		result.PaymentScheme = pmtInfo.SchemeName
 	}
 
 	return result, nil
@@ -259,4 +277,20 @@ type DownloadOptions struct {
 
 	// Progress is the progress tracker for the download.
 	Progress *Progress
+}
+
+// orderSchemes returns the L402 and MPP schemes ordered by the user's
+// configured preference. The first scheme in the slice has priority
+// when a server offers both challenge types.
+//
+//nolint:whitespace,wsl_v5
+func orderSchemes(l402Scheme, mppScheme payment.Scheme,
+	prefer config.PreferScheme) []payment.Scheme {
+
+	if prefer == config.PreferSchemePayment {
+		return []payment.Scheme{mppScheme, l402Scheme}
+	}
+
+	// Default: prefer L402 for reusable tokens.
+	return []payment.Scheme{l402Scheme, mppScheme}
 }

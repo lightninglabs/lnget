@@ -92,12 +92,12 @@ func TestWrappedTransport(t *testing.T) {
 	}
 
 	// Should be an L402Transport.
-	l402Transport, ok := wrapped.(*L402Transport)
+	pmtTransport, ok := wrapped.(*PaymentTransport)
 	if !ok {
-		t.Fatal("WrappedTransport() did not return *L402Transport")
+		t.Fatal("WrappedTransport() did not return *PaymentTransport")
 	}
 
-	if l402Transport.Base != base {
+	if pmtTransport.Base != base {
 		t.Error("Base should be the provided transport")
 	}
 }
@@ -111,13 +111,13 @@ func TestWrappedTransportNilBase(t *testing.T) {
 		t.Fatal("WrappedTransport() returned nil")
 	}
 
-	l402Transport, ok := wrapped.(*L402Transport)
+	pmtTransport, ok := wrapped.(*PaymentTransport)
 	if !ok {
-		t.Fatal("WrappedTransport() did not return *L402Transport")
+		t.Fatal("WrappedTransport() did not return *PaymentTransport")
 	}
 
 	// Should use DefaultTransport as base.
-	if l402Transport.Base != http.DefaultTransport {
+	if pmtTransport.Base != http.DefaultTransport {
 		t.Error("Base should be http.DefaultTransport when client has nil Transport")
 	}
 }

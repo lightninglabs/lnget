@@ -43,6 +43,11 @@ type Event struct {
 	// StatusCode is the HTTP status code of the final response.
 	StatusCode int `json:"status_code,omitempty"`
 
+	// Scheme is the payment authentication scheme used (e.g.
+	// "l402", "payment"). Defaults to "l402" for backward
+	// compatibility with events recorded before scheme tracking.
+	Scheme string `json:"scheme"`
+
 	// CreatedAt is when the event was recorded.
 	CreatedAt time.Time `json:"created_at"`
 }

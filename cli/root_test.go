@@ -30,7 +30,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name:     "L402 payment failed",
-			err:      client.ErrL402PaymentFailed,
+			err:      client.ErrPaymentFailed,
 			wantCode: ExitPaymentFailed,
 		},
 		{
