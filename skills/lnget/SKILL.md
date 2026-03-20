@@ -249,7 +249,7 @@ Config file: `~/.lnget/config.yaml`
 lnget config show --json
 
 # Set values via JSON
-lnget config set --json '{"l402": {"max_cost_sats": 5000}}'
+lnget config set --from-json '{"l402": {"max_cost_sats": 5000}}'
 
 # Set single value via dot-path
 lnget config set l402.max_cost_sats 5000

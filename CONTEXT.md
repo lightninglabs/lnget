@@ -146,7 +146,7 @@ export LNGET_LN_MODE=none
 
 ```bash
 # Bulk update via JSON
-lnget config set --json '{"l402": {"max_cost_sats": 5000}}'
+lnget config set --from-json '{"l402": {"max_cost_sats": 5000}}'
 
 # Single value via dot-path
 lnget config set l402.max_cost_sats 5000
