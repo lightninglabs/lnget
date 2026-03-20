@@ -90,6 +90,9 @@ var flags struct {
 
 	// Dry-run mode (preview without executing).
 	dryRun bool
+
+	// Print response body inline in JSON output.
+	printBody bool
 }
 
 // NewRootCmd creates the main lnget command.
@@ -102,21 +105,35 @@ transparently. When a server returns a 402 Payment Required response with an
 L402 challenge, lnget automatically pays the invoice and retries the request.
 
 Tokens are cached per-domain, so subsequent requests to the same domain reuse
-the existing token without additional payments.`,
-		Example: `  # Download a file
+the existing token without additional payments.
+
+Agent-friendly: use --json for structured output, --dry-run to preview payments,
+--print-body to embed response content in JSON, and --params for JSON input.
+Run 'lnget schema --all' for full machine-readable CLI introspection.`,
+		Example: `  # Download a file (saves to filename from URL)
   lnget https://api.example.com/data.json
 
-  # Download with output file
-  lnget -o output.json https://api.example.com/data.json
+  # JSON metadata + inline response body
+  lnget --json --print-body https://api.example.com/data.json
 
-  # Pipe to stdout for agent consumption
+  # Pipe response body to stdout
   lnget -q https://api.example.com/data.json | jq .
+  lnget -o - https://api.example.com/data.json
+
+  # Preview payment without spending (dry-run)
+  lnget --dry-run https://api.example.com/paid-endpoint
+
+  # Agent-first: JSON input + output
+  lnget --json --params '{"url": "https://api.example.com/data", "max_cost": 500}'
 
   # Set max payment amount (in sats)
   lnget --max-cost 1000 https://api.example.com/expensive-data
 
   # Resume interrupted download
-  lnget -c https://api.example.com/large-file.zip`,
+  lnget -c https://api.example.com/large-file.zip
+
+  # Introspect CLI schema for agents
+  lnget schema --all`,
 		Version: build.Version(),
 		Args:    cobra.RangeArgs(0, 1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -183,6 +200,10 @@ the existing token without additional payments.`,
 	// Dry-run mode.
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false,
 		"Preview the request without downloading or paying")
+
+	// Print body in JSON output.
+	cmd.Flags().BoolVar(&flags.printBody, "print-body", false,
+		"Include response body in JSON output (text only, <=1MB)")
 
 	// Override the version template to support JSON output.
 	cmd.SetVersionTemplate(`{{with .Name}}{{printf "%s " .}}{{end}}{{printf "%s\n" .Version}}`)
@@ -435,6 +456,22 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Support "-o -" to write response body to stdout (like wget).
+	if outputPath == "-" {
+		resp, err := httpClient.Get(ctx, url)
+		if err != nil {
+			return classifyError(err)
+		}
+
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		_, err = io.Copy(os.Stdout, resp.Body)
+
+		return err
+	}
+
 	// Validate the output path against traversal attacks.
 	if outputPath != "" {
 		outputPath, err = validateOutputPath(outputPath)
@@ -456,6 +493,16 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 
 		progress.Finish()
+
+		// When --print-body is set, read back the downloaded
+		// file and embed its content in the JSON result. Only
+		// text content types under 1MB are included.
+		if flags.printBody {
+			result.Body = readBodyForEmbed(
+				outputPath, result.ContentType,
+				result.Size,
+			)
+		}
 
 		// Emit structured JSON result when --json is active.
 		if isJSONOutput(cmd) {
@@ -651,6 +698,52 @@ func classifyError(err error) error {
 	}
 
 	return err
+}
+
+// maxPrintBodySize is the maximum response body size that will be
+// embedded in JSON output when --print-body is used.
+const maxPrintBodySize int64 = 1 << 20 // 1MB
+
+// readBodyForEmbed reads the downloaded file back and returns its
+// content as a string for embedding in JSON output. Only text content
+// types under maxPrintBodySize are returned; binary or oversized
+// responses return an empty string.
+func readBodyForEmbed(path, contentType string, size int64) string {
+	if size > maxPrintBodySize {
+		return ""
+	}
+
+	// Only embed text-like content types.
+	if !isTextContentType(contentType) {
+		return ""
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
+}
+
+// isTextContentType returns true if the content type indicates text
+// content that is safe to embed as a JSON string.
+func isTextContentType(ct string) bool {
+	textPrefixes := []string{
+		"text/",
+		"application/json",
+		"application/xml",
+		"application/javascript",
+		"application/x-www-form-urlencoded",
+	}
+
+	for _, prefix := range textPrefixes {
+		if len(ct) >= len(prefix) && ct[:len(prefix)] == prefix {
+			return true
+		}
+	}
+
+	return false
 }
 
 // initLogging sets up file-based logging. Logs are always written to

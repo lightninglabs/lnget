@@ -99,6 +99,11 @@ type DownloadResult struct {
 	// DurationMs is the request duration in milliseconds for
 	// machine-readable consumption.
 	DurationMs int64 `json:"duration_ms"`
+
+	// Body is the response body content, included when
+	// --print-body is set. Only populated for text content types
+	// under the size limit.
+	Body string `json:"body,omitempty"`
 }
 
 // DryRunResult represents the result of a --dry-run invocation. It
