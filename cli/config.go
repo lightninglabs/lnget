@@ -153,7 +153,8 @@ func newConfigSetCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if jsonInput != "" {
+			switch {
+			case jsonInput != "":
 				// Deep-merge JSON into config via marshal
 				// round-trip.
 				cfgJSON, err := json.Marshal(cfg)
@@ -189,7 +190,8 @@ func newConfigSetCmd() *cobra.Command {
 					return fmt.Errorf("failed to apply merged config: %w",
 						err)
 				}
-			} else if len(args) == 2 {
+
+			case len(args) == 2:
 				// Single key=value update via YAML overlay.
 				// Convert dot-path to nested YAML (e.g.
 				// "l402.max_cost_sats" -> "l402:\n  max_cost_sats:").
@@ -200,7 +202,8 @@ func newConfigSetCmd() *cobra.Command {
 						"invalid key/value: %v", err,
 					)
 				}
-			} else {
+
+			default:
 				return ErrInvalidArgsf(
 					"provide --from-json or key value pair",
 				)

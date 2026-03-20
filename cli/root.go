@@ -266,9 +266,10 @@ type RequestParams struct {
 	MaxFee *int64 `json:"max_fee,omitempty"`
 }
 
-// runGet executes the main download command.
-func runGet(cmd *cobra.Command, args []string) error {
-	// Resolve the URL from either positional args or --params.
+// resolveURL extracts the target URL from --params JSON or positional
+// args. If --params is set, its fields are applied to the global flags
+// struct as side effects.
+func resolveURL(args []string) (string, error) {
 	var url string
 
 	if flags.params != "" {
@@ -276,7 +277,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 		err := json.Unmarshal([]byte(flags.params), &params)
 		if err != nil {
-			return ErrInvalidArgsf("invalid --params JSON: %v", err)
+			return "", ErrInvalidArgsf(
+				"invalid --params JSON: %v", err,
+			)
 		}
 
 		// Apply params fields to flags.
@@ -316,19 +319,27 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	if url == "" {
-		return ErrInvalidArgsf("URL required (as argument or in --params)")
+		return "", ErrInvalidArgsf(
+			"URL required (as argument or in --params)",
+		)
 	}
 
 	// Validate the URL against common hallucination patterns.
-	_, err := validateURL(url)
-	if err != nil {
-		return err
+	if err := validateURL(url); err != nil {
+		return "", err
 	}
 
-	// Load configuration.
+	return url, nil
+}
+
+// runGet executes the main download command.
+// loadConfigWithOverrides loads the config file and applies CLI flag
+// overrides. Only flags explicitly set by the user override config
+// file values.
+func loadConfigWithOverrides(cmd *cobra.Command) (*config.Config, error) {
 	cfg, err := config.LoadConfig(flags.configFile)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Apply flag overrides — only when explicitly set by the user.
@@ -368,14 +379,24 @@ func runGet(cmd *cobra.Command, args []string) error {
 		cfg.HTTP.MaxRedirects = flags.maxRedirects
 	}
 
-	// Validate configuration.
-	err = cfg.Validate()
-	if err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Ensure directories exist.
-	err = config.EnsureDirectories(cfg)
+	if err := config.EnsureDirectories(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+func runGet(cmd *cobra.Command, args []string) error {
+	url, err := resolveURL(args)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadConfigWithOverrides(cmd)
 	if err != nil {
 		return err
 	}

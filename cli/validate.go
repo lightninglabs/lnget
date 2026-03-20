@@ -17,11 +17,11 @@ var dangerousDirs = []string{
 // validateURL parses and validates a URL for use as a download target.
 // It rejects non-HTTP(S) schemes, URLs with embedded userinfo, and
 // URLs containing control characters.
-func validateURL(rawURL string) (*url.URL, error) {
+func validateURL(rawURL string) error {
 	// Reject control characters (common agent hallucination).
 	for _, c := range rawURL {
 		if c < 0x20 {
-			return nil, ErrInvalidArgsf(
+			return ErrInvalidArgsf(
 				"URL contains control character 0x%02x", c,
 			)
 		}
@@ -29,7 +29,7 @@ func validateURL(rawURL string) (*url.URL, error) {
 
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, ErrInvalidArgsf("invalid URL: %v", err)
+		return ErrInvalidArgsf("invalid URL: %v", err)
 	}
 
 	// Require http or https scheme.
@@ -38,12 +38,12 @@ func validateURL(rawURL string) (*url.URL, error) {
 		// OK.
 
 	case "":
-		return nil, ErrInvalidArgsf(
+		return ErrInvalidArgsf(
 			"URL missing scheme (expected http:// or https://)",
 		)
 
 	default:
-		return nil, ErrInvalidArgsf(
+		return ErrInvalidArgsf(
 			"unsupported URL scheme %q (expected http or https)",
 			parsed.Scheme,
 		)
@@ -51,17 +51,17 @@ func validateURL(rawURL string) (*url.URL, error) {
 
 	// Reject URLs with embedded credentials.
 	if parsed.User != nil {
-		return nil, ErrInvalidArgsf(
+		return ErrInvalidArgsf(
 			"URL must not contain embedded credentials",
 		)
 	}
 
 	// Require a host.
 	if parsed.Hostname() == "" {
-		return nil, ErrInvalidArgsf("URL has empty hostname")
+		return ErrInvalidArgsf("URL has empty hostname")
 	}
 
-	return parsed, nil
+	return nil
 }
 
 // validateDomain validates a domain string for use as a token lookup

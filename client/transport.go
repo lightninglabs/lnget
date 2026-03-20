@@ -375,10 +375,10 @@ func classifyPaymentError(err error) error {
 	// Use typed sentinel from the l402 handler rather than
 	// fragile string matching.
 	if errors.Is(err, l402.ErrInvoiceExceedsMax) {
-		return fmt.Errorf("%w: %v", ErrPaymentExceedsMax, err)
+		return fmt.Errorf("%w: %w", ErrPaymentExceedsMax, err)
 	}
 
-	return fmt.Errorf("%w: %v", ErrL402PaymentFailed, err)
+	return fmt.Errorf("%w: %w", ErrL402PaymentFailed, err)
 }
 
 // WrappedTransport returns a transport that wraps an existing one with L402

@@ -105,6 +105,9 @@ func (s *Service) GetLNStatus(ctx context.Context) (*client.BackendStatus, error
 	if err != nil {
 		status.Error = err.Error()
 
+		//nolint:nilerr // Intentional: error is surfaced in
+		// status.Error, not as a Go error. Callers inspect the
+		// status struct.
 		return status, nil
 	}
 
