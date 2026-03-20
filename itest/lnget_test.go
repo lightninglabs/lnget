@@ -5,7 +5,10 @@ package itest
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -405,5 +408,358 @@ func TestTimeout(t *testing.T) {
 	_, err = client.Get(ctx, h.ServerURL()+"/public")
 	if err == nil {
 		t.Error("expected timeout error, got nil")
+	}
+}
+
+// TestPostRequest tests that a POST request with a body is correctly
+// delivered to the server via the echo endpoint.
+func TestPostRequest(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	body := `{"prompt":"hello","stream":false}`
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		h.ServerURL()+"/echo",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST to /echo failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	var echo echoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		t.Fatalf("failed to decode echo response: %v", err)
+	}
+
+	if echo.Method != "POST" {
+		t.Errorf("expected method POST, got %s", echo.Method)
+	}
+
+	if echo.Body != body {
+		t.Errorf("expected body %q, got %q", body, echo.Body)
+	}
+
+	if echo.Headers["Content-Type"] != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q",
+			echo.Headers["Content-Type"])
+	}
+}
+
+// TestCustomHeaders tests that custom request headers are delivered to
+// the server via the echo endpoint.
+func TestCustomHeaders(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet,
+		h.ServerURL()+"/echo", nil,
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-Custom-Header", "test-value-42")
+	req.Header.Set("Accept", "text/plain")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /echo with custom headers failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var echo echoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		t.Fatalf("failed to decode echo response: %v", err)
+	}
+
+	if echo.Headers["X-Custom-Header"] != "test-value-42" {
+		t.Errorf("expected X-Custom-Header test-value-42, got %q",
+			echo.Headers["X-Custom-Header"])
+	}
+
+	if echo.Headers["Accept"] != "text/plain" {
+		t.Errorf("expected Accept text/plain, got %q",
+			echo.Headers["Accept"])
+	}
+}
+
+// TestPostWithL402 tests that a POST body survives the L402 402 -> pay
+// -> retry cycle through the protected echo endpoint.
+func TestPostWithL402(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	body := `{"data":"should survive L402 retry"}`
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		h.ServerURL()+"/echo-protected",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST to /echo-protected failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	var echo echoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		t.Fatalf("failed to decode echo response: %v", err)
+	}
+
+	// Verify the body survived the L402 retry cycle.
+	if echo.Method != "POST" {
+		t.Errorf("expected method POST, got %s", echo.Method)
+	}
+
+	if echo.Body != body {
+		t.Errorf("body not preserved through L402 retry: got %q, want %q",
+			echo.Body, body)
+	}
+
+	// Verify a payment was made.
+	payments := h.MockLN().GetPayments()
+	if len(payments) != 1 {
+		t.Errorf("expected 1 payment, got %d", len(payments))
+	}
+}
+
+// TestMethodGating tests that method-restricted endpoints correctly
+// reject requests with the wrong HTTP method.
+func TestMethodGating(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// POST to /post-only should succeed.
+	postReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		h.ServerURL()+"/post-only",
+		strings.NewReader(`{"key":"value"}`),
+	)
+	if err != nil {
+		t.Fatalf("failed to create POST request: %v", err)
+	}
+
+	resp, err := client.Do(postReq)
+	if err != nil {
+		t.Fatalf("POST to /post-only failed: %v", err)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("POST /post-only: expected 200, got %d (body: %s)",
+			resp.StatusCode, string(respBody))
+	}
+
+	// GET to /post-only should return 405.
+	getResp, err := client.Get(ctx, h.ServerURL()+"/post-only")
+	if err != nil {
+		t.Fatalf("GET to /post-only failed: %v", err)
+	}
+	_ = getResp.Body.Close()
+
+	if getResp.StatusCode != 405 {
+		t.Errorf("GET /post-only: expected 405, got %d",
+			getResp.StatusCode)
+	}
+
+	// PUT to /put-only should succeed.
+	putReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPut,
+		h.ServerURL()+"/put-only",
+		strings.NewReader(`{"key":"value"}`),
+	)
+	if err != nil {
+		t.Fatalf("failed to create PUT request: %v", err)
+	}
+
+	putResp, err := client.Do(putReq)
+	if err != nil {
+		t.Fatalf("PUT to /put-only failed: %v", err)
+	}
+	_ = putResp.Body.Close()
+
+	if putResp.StatusCode != 200 {
+		t.Errorf("PUT /put-only: expected 200, got %d",
+			putResp.StatusCode)
+	}
+
+	// GET to /put-only should return 405.
+	getResp2, err := client.Get(ctx, h.ServerURL()+"/put-only")
+	if err != nil {
+		t.Fatalf("GET to /put-only failed: %v", err)
+	}
+	_ = getResp2.Body.Close()
+
+	if getResp2.StatusCode != 405 {
+		t.Errorf("GET /put-only: expected 405, got %d",
+			getResp2.StatusCode)
+	}
+}
+
+// TestPostViaClientDo tests that a POST request with a body sent
+// through client.Do arrives at the echo endpoint with the correct
+// method and body intact. This exercises the client transport layer
+// independently of the CLI's buildRequest auto-promotion logic.
+func TestPostViaClientDo(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Simulate what buildRequest does: when data is provided and
+	// method is GET, it promotes to POST.
+	body := `{"auto":"promoted"}`
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		h.ServerURL()+"/echo",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("auto-promoted POST failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var echo echoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		t.Fatalf("failed to decode echo response: %v", err)
+	}
+
+	if echo.Method != "POST" {
+		t.Errorf("expected method POST after promotion, got %s",
+			echo.Method)
+	}
+
+	if echo.Body != body {
+		t.Errorf("expected body %q, got %q", body, echo.Body)
+	}
+}
+
+// TestContentTypeHeader tests that the Content-Type header is correctly
+// delivered via the echo endpoint.
+func TestContentTypeHeader(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	h := NewHarness(t)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("failed to start harness: %v", err)
+	}
+	defer h.Stop()
+
+	client, err := h.NewClient()
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost,
+		h.ServerURL()+"/echo",
+		strings.NewReader("key=value"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /echo with content-type failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var echo echoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		t.Fatalf("failed to decode echo response: %v", err)
+	}
+
+	expected := "application/x-www-form-urlencoded"
+	if echo.Headers["Content-Type"] != expected {
+		t.Errorf("expected Content-Type %q, got %q",
+			expected, echo.Headers["Content-Type"])
 	}
 }
