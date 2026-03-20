@@ -3,6 +3,7 @@ package l402
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -11,6 +12,11 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// ErrInvoiceExceedsMax is returned when an L402 invoice amount exceeds
+// the configured maximum cost. Callers can use errors.Is to detect
+// this condition.
+var ErrInvoiceExceedsMax = errors.New("invoice exceeds maximum cost")
 
 // PaymentResult contains the result of an invoice payment.
 type PaymentResult struct {
@@ -152,9 +158,9 @@ func (h *Handler) HandleChallenge(ctx context.Context, resp *http.Response,
 		log.Warnf("Invoice amount %d sats exceeds max cost %d sats",
 			challenge.InvoiceAmount, h.maxCostSat)
 
-		return nil, "", fmt.Errorf("invoice amount %d sats exceeds "+
-			"maximum %d sats", challenge.InvoiceAmount,
-			h.maxCostSat)
+		return nil, "", fmt.Errorf("%w: %d sats exceeds "+
+			"maximum %d sats", ErrInvoiceExceedsMax,
+			challenge.InvoiceAmount, h.maxCostSat)
 	}
 
 	// Create a pending token with the base macaroon properly set.
