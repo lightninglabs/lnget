@@ -167,17 +167,31 @@ func (c *Client) Do(req *http.Request) (*Response, error) {
 func (c *Client) Download(ctx context.Context, url string, outputPath string,
 	opts *DownloadOptions) (*DownloadResult, error) {
 
-	if opts == nil {
-		opts = &DownloadOptions{}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set user agent.
-	req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
+	return c.DoDownload(req, outputPath, opts)
+}
+
+// DoDownload executes a pre-built request and writes the response body
+// to a file. Unlike Download, this method preserves the caller's HTTP
+// method, headers, and body, making it suitable for POST/PUT downloads
+// and custom header scenarios.
+//
+//nolint:whitespace
+func (c *Client) DoDownload(req *http.Request, outputPath string,
+	opts *DownloadOptions) (*DownloadResult, error) {
+
+	if opts == nil {
+		opts = &DownloadOptions{}
+	}
+
+	// Set user agent if not already provided.
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
+	}
 
 	// Add resume header if requested.
 	if opts.Resume {
@@ -242,6 +256,7 @@ func (c *Client) Download(ctx context.Context, url string, outputPath string,
 	duration := time.Since(start)
 
 	// Build the download result with metadata.
+	url := req.URL.String()
 	result := &DownloadResult{
 		URL:         url,
 		OutputPath:  outputPath,

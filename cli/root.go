@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lightninglabs/lnget/build"
@@ -47,6 +48,9 @@ var flags struct {
 
 	// HTTP method.
 	method string
+
+	// Content type for request body.
+	contentType string
 
 	// Follow redirects.
 	followRedirects bool
@@ -125,6 +129,14 @@ Run 'lnget schema --all' for full machine-readable CLI introspection.`,
   lnget -q https://api.example.com/data.json | jq .
   lnget -o - https://api.example.com/data.json
 
+  # POST with JSON body (auto-outputs to stdout)
+  lnget -X POST -d '{"prompt":"hello"}' --content-type application/json \
+    https://api.example.com/generate
+
+  # Same request using agent-friendly long flags
+  lnget --method POST --body '{"prompt":"hello"}' \
+    --content-type application/json https://api.example.com/generate
+
   # Preview payment without spending (dry-run)
   lnget --dry-run https://api.example.com/paid-endpoint
 
@@ -159,9 +171,19 @@ Run 'lnget schema --all' for full machine-readable CLI introspection.`,
 	cmd.Flags().StringSliceVarP(&flags.headers, "header", "H", nil,
 		"Custom headers (can be repeated)")
 	cmd.Flags().StringVarP(&flags.data, "data", "d", "",
-		"POST data")
+		"Request body data")
 	cmd.Flags().StringVarP(&flags.method, "request", "X", "GET",
 		"HTTP method")
+	cmd.Flags().StringVar(&flags.contentType, "content-type", "",
+		"Content-Type header for request body")
+
+	// Agent-friendly long-form aliases for wget/curl-style flags.
+	// These are hidden to avoid cluttering --help but appear in
+	// schema introspection and work identically to the short forms.
+	cmd.Flags().String("method", "",
+		"HTTP method (alias for -X/--request)")
+	cmd.Flags().String("body", "",
+		"Request body data (alias for -d/--data)")
 	cmd.Flags().BoolVarP(&flags.followRedirects, "location", "L", true,
 		"Follow redirects")
 	cmd.Flags().IntVar(&flags.maxRedirects, "max-redirects", 10,
@@ -264,6 +286,9 @@ type RequestParams struct {
 	// Data is the request body for POST/PUT.
 	Data string `json:"data,omitempty"`
 
+	// ContentType is the Content-Type header for the request body.
+	ContentType string `json:"content_type,omitempty"`
+
 	// Output is the output file path.
 	Output string `json:"output,omitempty"`
 
@@ -276,6 +301,70 @@ type RequestParams struct {
 	// PreferScheme selects the preferred payment scheme when
 	// a server offers both ("l402" or "payment").
 	PreferScheme string `json:"prefer_scheme,omitempty"`
+}
+
+// hasCustomRequest returns true when the user has specified a non-GET
+// method or request body, indicating the request should not enter the
+// default file-download path.
+func hasCustomRequest() bool {
+	return flags.data != "" || flags.method != "GET"
+}
+
+// buildRequest constructs an *http.Request from the CLI flags. If a
+// body is provided via -d/--body and the method is still GET, the
+// method is automatically promoted to POST (matching curl behavior).
+func buildRequest(ctx context.Context, url string) (*http.Request, error) {
+	method := flags.method
+
+	var body io.Reader
+	if flags.data != "" {
+		body = strings.NewReader(flags.data)
+
+		// Auto-promote GET to POST when a body is provided,
+		// matching curl/wget conventions.
+		if method == "GET" {
+			method = "POST"
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Apply the --content-type convenience flag first so that an
+	// explicit -H "Content-Type: ..." can override it.
+	if flags.contentType != "" {
+		req.Header.Set("Content-Type", flags.contentType)
+	}
+
+	// Apply custom headers from -H/--header flags.
+	for _, h := range flags.headers {
+		parts := strings.SplitN(h, ":", 2)
+		if len(parts) == 2 {
+			req.Header.Set(
+				strings.TrimSpace(parts[0]),
+				strings.TrimSpace(parts[1]),
+			)
+		}
+	}
+
+	return req, nil
+}
+
+// applyFlagAliases copies values from long-form agent-friendly aliases
+// (--method, --body) into the canonical flag fields when the alias was
+// explicitly provided by the user.
+func applyFlagAliases(cmd *cobra.Command) {
+	if cmd.Flags().Changed("method") {
+		v, _ := cmd.Flags().GetString("method")
+		flags.method = v
+	}
+
+	if cmd.Flags().Changed("body") {
+		v, _ := cmd.Flags().GetString("body")
+		flags.data = v
+	}
 }
 
 // resolveURL extracts the target URL from --params JSON or positional
@@ -305,6 +394,10 @@ func resolveURL(args []string) (string, error) {
 
 		if params.Data != "" {
 			flags.data = params.Data
+		}
+
+		if params.ContentType != "" {
+			flags.contentType = params.ContentType
 		}
 
 		if params.Output != "" {
@@ -425,6 +518,10 @@ func loadConfigWithOverrides(cmd *cobra.Command) (*config.Config, error) {
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
+	// Apply long-form flag aliases. These override the wget/curl
+	// short forms only when explicitly set by the user.
+	applyFlagAliases(cmd)
+
 	url, err := resolveURL(args)
 	if err != nil {
 		return err
@@ -501,9 +598,19 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
-	// Determine output destination.
+	// Build the request from CLI flags (-X, -d, -H, --content-type).
+	req, err := buildRequest(ctx, url)
+	if err != nil {
+		return err
+	}
+
+	// Determine output destination. When a custom method or body
+	// is set, skip the auto-filename logic so API responses go to
+	// stdout instead of being saved as files.
+	customReq := hasCustomRequest()
+
 	outputPath := flags.output
-	if outputPath == "" && !flags.quiet {
+	if outputPath == "" && !flags.quiet && !customReq {
 		// Default to filename from URL.
 		outputPath = filepath.Base(url)
 		if outputPath == "" || outputPath == "/" || outputPath == "." {
@@ -513,7 +620,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	// Support "-o -" to write response body to stdout (like wget).
 	if outputPath == "-" {
-		resp, err := httpClient.Get(ctx, url)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return classifyError(err)
 		}
@@ -535,44 +642,15 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// If outputting to a file, use download mode.
+	// If outputting to a file, use download mode. DoDownload
+	// preserves the request's method, headers, and body so both
+	// simple GETs and custom requests work correctly.
 	if outputPath != "" {
-		progress := client.NewProgress(flags.quiet || flags.noProgress)
-
-		result, err := httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
-			Resume:   flags.resume,
-			Progress: progress,
-		})
-		if err != nil {
-			return classifyError(err)
-		}
-
-		progress.Finish()
-
-		// When --print-body is set, read back the downloaded
-		// file and embed its content in the JSON result. Only
-		// text content types under 1MB are included.
-		if flags.printBody {
-			result.Body = readBodyForEmbed(
-				outputPath, result.ContentType,
-				result.Size,
-			)
-		}
-
-		// Emit structured JSON result when --json is active.
-		if isJSONOutput(cmd) {
-			return writeJSON(os.Stdout, result)
-		}
-
-		if !flags.quiet {
-			fmt.Fprintf(os.Stderr, "Downloaded to: %s\n", outputPath)
-		}
-
-		return nil
+		return runDownload(cmd, httpClient, req, outputPath)
 	}
 
-	// Quiet mode: output to stdout.
-	resp, err := httpClient.Get(ctx, url)
+	// Stdout mode: quiet, custom request without -o, or pipe.
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return classifyError(err)
 	}
@@ -585,6 +663,48 @@ func runGet(cmd *cobra.Command, args []string) error {
 	_, err = io.Copy(os.Stdout, resp.Body)
 
 	return err
+}
+
+// runDownload executes a download using DoDownload, handling progress,
+// print-body embedding, and JSON output formatting.
+//
+//nolint:whitespace
+func runDownload(cmd *cobra.Command, httpClient *client.Client,
+	req *http.Request, outputPath string) error {
+
+	progress := client.NewProgress(flags.quiet || flags.noProgress)
+
+	result, err := httpClient.DoDownload(
+		req, outputPath, &client.DownloadOptions{
+			Resume:   flags.resume,
+			Progress: progress,
+		},
+	)
+	if err != nil {
+		return classifyError(err)
+	}
+
+	progress.Finish()
+
+	// When --print-body is set, read back the downloaded file and
+	// embed its content in the JSON result. Only text content
+	// types under 1MB are included.
+	if flags.printBody {
+		result.Body = readBodyForEmbed(
+			outputPath, result.ContentType, result.Size,
+		)
+	}
+
+	// Emit structured JSON result when --json is active.
+	if isJSONOutput(cmd) {
+		return writeJSON(os.Stdout, result)
+	}
+
+	if !flags.quiet {
+		fmt.Fprintf(os.Stderr, "Downloaded to: %s\n", outputPath)
+	}
+
+	return nil
 }
 
 // createBackend creates the appropriate Lightning backend based on config.
