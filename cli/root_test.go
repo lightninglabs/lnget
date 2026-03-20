@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/lightninglabs/lnget/client"
+	"github.com/spf13/cobra"
 )
 
 // TestClassifyError verifies that classifyError maps transport and
@@ -261,6 +263,133 @@ func TestBuildRequest(t *testing.T) {
 					t.Errorf("header %q = %q, want %q",
 						key, got, want)
 				}
+			}
+		})
+	}
+}
+
+// TestBuildRequestMalformedHeader verifies that buildRequest rejects
+// headers without a colon separator instead of silently dropping them.
+func TestBuildRequestMalformedHeader(t *testing.T) {
+	origMethod := flags.method
+	origHeaders := flags.headers
+	defer func() {
+		flags.method = origMethod
+		flags.headers = origHeaders
+	}()
+
+	flags.method = "GET"
+	flags.headers = []string{"MissingColonHeader"}
+
+	ctx := context.Background()
+	_, err := buildRequest(ctx, "http://example.com/test")
+	if err == nil {
+		t.Fatal("expected error for malformed header, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid header format") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestApplyFlagAliases verifies that long-form aliases are applied
+// correctly and that conflicts are rejected.
+func TestApplyFlagAliases(t *testing.T) {
+	tests := []struct {
+		name       string
+		setFlags   map[string]string
+		wantErr    bool
+		errSubstr  string
+		wantMethod string
+		wantData   string
+	}{
+		{
+			name:       "no aliases set",
+			setFlags:   map[string]string{},
+			wantMethod: "GET",
+			wantData:   "",
+		},
+		{
+			name:       "method alias set",
+			setFlags:   map[string]string{"method": "POST"},
+			wantMethod: "POST",
+		},
+		{
+			name:     "body alias set",
+			setFlags: map[string]string{"body": "payload"},
+			wantData: "payload",
+		},
+		{
+			name:      "method and request conflict",
+			setFlags:  map[string]string{"method": "POST", "request": "PUT"},
+			wantErr:   true,
+			errSubstr: "aliases",
+		},
+		{
+			name:      "body and data conflict",
+			setFlags:  map[string]string{"body": "a", "data": "b"},
+			wantErr:   true,
+			errSubstr: "aliases",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore global flags.
+			origMethod := flags.method
+			origData := flags.data
+			defer func() {
+				flags.method = origMethod
+				flags.data = origData
+			}()
+
+			flags.method = "GET"
+			flags.data = ""
+
+			// Build a fresh command with the same flags as
+			// the real root command.
+			cmd := &cobra.Command{}
+			cmd.Flags().StringVarP(
+				&flags.method, "request", "X", "GET",
+				"HTTP method",
+			)
+			cmd.Flags().StringVarP(
+				&flags.data, "data", "d", "", "body",
+			)
+			cmd.Flags().String("method", "", "alias")
+			cmd.Flags().String("body", "", "alias")
+
+			for k, v := range tt.setFlags {
+				_ = cmd.Flags().Set(k, v)
+			}
+
+			err := applyFlagAliases(cmd)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+
+				if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q missing %q",
+						err.Error(), tt.errSubstr)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantMethod != "" && flags.method != tt.wantMethod {
+				t.Errorf("method = %q, want %q",
+					flags.method, tt.wantMethod)
+			}
+
+			if tt.wantData != "" && flags.data != tt.wantData {
+				t.Errorf("data = %q, want %q",
+					flags.data, tt.wantData)
 			}
 		})
 	}

@@ -178,12 +178,16 @@ Run 'lnget schema --all' for full machine-readable CLI introspection.`,
 		"Content-Type header for request body")
 
 	// Agent-friendly long-form aliases for wget/curl-style flags.
-	// These are hidden to avoid cluttering --help but appear in
-	// schema introspection and work identically to the short forms.
+	// Hidden from --help to avoid clutter but visible in schema
+	// introspection. Only one of each pair may be used per
+	// invocation (e.g. --method OR -X, not both).
 	cmd.Flags().String("method", "",
 		"HTTP method (alias for -X/--request)")
 	cmd.Flags().String("body", "",
 		"Request body data (alias for -d/--data)")
+	_ = cmd.Flags().MarkHidden("method")
+	_ = cmd.Flags().MarkHidden("body")
+
 	cmd.Flags().BoolVarP(&flags.followRedirects, "location", "L", true,
 		"Follow redirects")
 	cmd.Flags().IntVar(&flags.maxRedirects, "max-redirects", 10,
@@ -338,15 +342,22 @@ func buildRequest(ctx context.Context, url string) (*http.Request, error) {
 		req.Header.Set("Content-Type", flags.contentType)
 	}
 
-	// Apply custom headers from -H/--header flags.
+	// Apply custom headers from -H/--header flags. Each header
+	// must be in "Name: Value" format; malformed entries are
+	// rejected to prevent silent misconfiguration.
 	for _, h := range flags.headers {
 		parts := strings.SplitN(h, ":", 2)
-		if len(parts) == 2 {
-			req.Header.Set(
-				strings.TrimSpace(parts[0]),
-				strings.TrimSpace(parts[1]),
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
+			return nil, fmt.Errorf(
+				"invalid header format %q "+
+					"(expected Name: Value)", h,
 			)
 		}
+
+		req.Header.Set(
+			strings.TrimSpace(parts[0]),
+			strings.TrimSpace(parts[1]),
+		)
 	}
 
 	return req, nil
@@ -354,8 +365,23 @@ func buildRequest(ctx context.Context, url string) (*http.Request, error) {
 
 // applyFlagAliases copies values from long-form agent-friendly aliases
 // (--method, --body) into the canonical flag fields when the alias was
-// explicitly provided by the user.
-func applyFlagAliases(cmd *cobra.Command) {
+// explicitly provided by the user. It returns an error if both an
+// alias and its canonical counterpart are set simultaneously.
+func applyFlagAliases(cmd *cobra.Command) error {
+	// Reject conflicting flag pairs. Each alias is mutually
+	// exclusive with its canonical form.
+	if cmd.Flags().Changed("method") && cmd.Flags().Changed("request") {
+		return ErrInvalidArgsf(
+			"--method and -X/--request are aliases; use only one",
+		)
+	}
+
+	if cmd.Flags().Changed("body") && cmd.Flags().Changed("data") {
+		return ErrInvalidArgsf(
+			"--body and -d/--data are aliases; use only one",
+		)
+	}
+
 	if cmd.Flags().Changed("method") {
 		v, _ := cmd.Flags().GetString("method")
 		flags.method = v
@@ -365,11 +391,17 @@ func applyFlagAliases(cmd *cobra.Command) {
 		v, _ := cmd.Flags().GetString("body")
 		flags.data = v
 	}
+
+	return nil
 }
 
 // resolveURL extracts the target URL from --params JSON or positional
 // args. If --params is set, its fields are applied to the global flags
 // struct as side effects.
+//
+// Flag precedence (highest wins):
+//
+//	--params JSON > --method/--body (aliases) > -X/-d (canonical flags)
 func resolveURL(args []string) (string, error) {
 	var url string
 
@@ -520,7 +552,9 @@ func loadConfigWithOverrides(cmd *cobra.Command) (*config.Config, error) {
 func runGet(cmd *cobra.Command, args []string) error {
 	// Apply long-form flag aliases. These override the wget/curl
 	// short forms only when explicitly set by the user.
-	applyFlagAliases(cmd)
+	if err := applyFlagAliases(cmd); err != nil {
+		return err
+	}
 
 	url, err := resolveURL(args)
 	if err != nil {
