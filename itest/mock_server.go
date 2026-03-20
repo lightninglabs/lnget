@@ -10,7 +10,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -58,6 +60,28 @@ type EndpointConfig struct {
 
 	// Invoice is a static invoice to return (for deterministic testing).
 	Invoice string
+
+	// Echo causes the endpoint to return a JSON representation of
+	// the received request (method, headers, body) instead of a
+	// static response body.
+	Echo bool
+
+	// AllowedMethod restricts the endpoint to a single HTTP method.
+	// Requests with any other method receive 405 Method Not Allowed.
+	// An empty string allows all methods.
+	AllowedMethod string
+}
+
+// echoResponse is the JSON structure returned by echo endpoints.
+type echoResponse struct {
+	// Method is the HTTP method used in the request.
+	Method string `json:"method"`
+
+	// Headers contains selected request headers.
+	Headers map[string]string `json:"headers"`
+
+	// Body is the raw request body as a string.
+	Body string `json:"body"`
 }
 
 // NewMockServer creates a new mock L402 server.
@@ -96,6 +120,37 @@ func NewMockServer(port int, mockLN *MockLNBackend) *MockServer {
 		ResponseBody: `{"message":"expensive content"}`,
 		ContentType:  "application/json",
 		Invoice:      testInvoice5000,
+	}
+
+	// Echo endpoint returns the received request details as JSON.
+	s.endpoints["/echo"] = &EndpointConfig{
+		Protected: false,
+		Echo:      true,
+	}
+
+	// Protected echo endpoint: requires L402 payment, then echoes
+	// the request. Useful for verifying body replay through the
+	// 402 -> pay -> retry cycle.
+	s.endpoints["/echo-protected"] = &EndpointConfig{
+		Protected: true,
+		PriceSats: 100,
+		Echo:      true,
+		Invoice:   testInvoice100,
+	}
+
+	// Method-gated endpoints return 405 for wrong methods.
+	s.endpoints["/post-only"] = &EndpointConfig{
+		Protected:     false,
+		AllowedMethod: http.MethodPost,
+		ResponseBody:  `{"message":"post accepted"}`,
+		ContentType:   "application/json",
+	}
+
+	s.endpoints["/put-only"] = &EndpointConfig{
+		Protected:     false,
+		AllowedMethod: http.MethodPut,
+		ResponseBody:  `{"message":"put accepted"}`,
+		ContentType:   "application/json",
 	}
 
 	return s
@@ -178,8 +233,24 @@ func (s *MockServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce method restriction if configured.
+	if endpoint.AllowedMethod != "" && r.Method != endpoint.AllowedMethod {
+		http.Error(
+			w, "method not allowed",
+			http.StatusMethodNotAllowed,
+		)
+
+		return
+	}
+
 	// If the endpoint is not protected, return the content directly.
 	if !endpoint.Protected {
+		if endpoint.Echo {
+			s.writeEcho(w, r)
+
+			return
+		}
+
 		w.Header().Set("Content-Type", endpoint.ContentType)
 		_, _ = w.Write([]byte(endpoint.ResponseBody))
 
@@ -202,6 +273,12 @@ func (s *MockServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Token is valid, return the protected content.
+	if endpoint.Echo {
+		s.writeEcho(w, r)
+
+		return
+	}
+
 	w.Header().Set("Content-Type", endpoint.ContentType)
 	_, _ = w.Write([]byte(endpoint.ResponseBody))
 }
@@ -276,6 +353,32 @@ func (s *MockServer) generateMacaroon(
 	}
 
 	return mac, nil
+}
+
+// writeEcho writes a JSON echo response containing the request method,
+// selected headers, and body.
+func (s *MockServer) writeEcho(w http.ResponseWriter, r *http.Request) {
+	bodyBytes, _ := io.ReadAll(r.Body)
+
+	headers := make(map[string]string)
+	for _, name := range []string{
+		"Content-Type", "Authorization", "X-Custom-Header",
+		"Accept",
+	} {
+		if v := r.Header.Get(name); v != "" {
+			headers[name] = v
+		}
+	}
+
+	resp := echoResponse{
+		Method:  r.Method,
+		Headers: headers,
+		Body:    string(bodyBytes),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // validateL402Token validates an L402 authorization header.
