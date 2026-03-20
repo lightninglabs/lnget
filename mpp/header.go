@@ -108,10 +108,12 @@ type ChargeRequest struct {
 
 	// ExternalID is the optional merchant reference for
 	// reconciliation.
+	//nolint:tagliatelle
 	ExternalID string `json:"externalId,omitempty"`
 
 	// MethodDetails contains Lightning-specific fields including
 	// the BOLT11 invoice.
+	//nolint:tagliatelle
 	MethodDetails *LightningDetails `json:"methodDetails"`
 }
 
@@ -124,6 +126,7 @@ type LightningDetails struct {
 
 	// PaymentHash is the optional convenience field containing the
 	// payment hash from the invoice as a lowercase hex string.
+	//nolint:tagliatelle
 	PaymentHash string `json:"paymentHash,omitempty"`
 
 	// Network is the optional convenience field identifying the

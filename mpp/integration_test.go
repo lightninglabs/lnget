@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -370,7 +371,7 @@ func TestIntegrationGetCredentialAlwaysFails(t *testing.T) {
 
 	for _, domain := range domains {
 		_, err := scheme.GetCredential(domain)
-		if err != payment.ErrNoCredential {
+		if !errors.Is(err, payment.ErrNoCredential) {
 			t.Errorf("GetCredential(%q) = %v, want "+
 				"ErrNoCredential", domain, err)
 		}

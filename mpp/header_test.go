@@ -100,7 +100,7 @@ func TestIsPaymentChallenge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := &http.Response{
 				StatusCode: tt.statusCode,
-				Header:     http.Header(tt.headers),
+				Header:     tt.headers,
 			}
 
 			got := IsPaymentChallenge(resp)
@@ -473,7 +473,7 @@ func TestFindPaymentChallenge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := &http.Response{
 				StatusCode: http.StatusPaymentRequired,
-				Header:     http.Header(tt.headers),
+				Header:     tt.headers,
 			}
 
 			c, err := FindPaymentChallenge(resp)

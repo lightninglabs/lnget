@@ -27,6 +27,7 @@ type Receipt struct {
 	// ChallengeID is the challenge identifier for audit
 	// correlation. Present in Lightning receipts per
 	// draft-lightning-charge-00 Section 10.2.
+	//nolint:tagliatelle
 	ChallengeID string `json:"challengeId,omitempty"`
 }
 

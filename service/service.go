@@ -195,46 +195,27 @@ func (s *Service) DryRun(ctx context.Context, rawURL string) (*client.DryRunResu
 		_ = resp.Body.Close()
 	}()
 
-	if l402.IsL402Challenge(resp) {
+	switch {
+	case l402.IsL402Challenge(resp):
 		result.RequiresL402 = true
 		result.RequiresPayment = true
 		result.PaymentScheme = "L402"
 
 		authHeader := resp.Header.Get("WWW-Authenticate")
+
 		challenge, parseErr := l402.ParseChallenge(authHeader)
 		if parseErr == nil {
 			result.InvoiceAmountSat = challenge.InvoiceAmount
 			result.WithinBudget = challenge.InvoiceAmount <= s.Cfg.L402.MaxCostSats
 		}
-	} else if mpp.IsPaymentChallenge(resp) {
+
+	case mpp.IsPaymentChallenge(resp):
 		result.RequiresPayment = true
 		result.PaymentScheme = "Payment"
 
-		challenge, parseErr := mpp.FindPaymentChallenge(resp)
-		if parseErr == nil && challenge.Request != nil {
-			// Use the request's amount field (in sats).
-			var amountSat int64
-			if challenge.Request.Amount != "" {
-				parsed, err := strconv.ParseInt(
-					challenge.Request.Amount, 10, 64,
-				)
-				if err == nil {
-					amountSat = parsed
-				}
-			}
-
-			// Fall back to BOLT11 HRP parsing.
-			if amountSat == 0 &&
-				challenge.Request.MethodDetails != nil {
-
-				amountSat = l402.ParseInvoiceAmountSat(
-					challenge.Request.MethodDetails.Invoice,
-				)
-			}
-
-			result.InvoiceAmountSat = amountSat
-			result.WithinBudget = amountSat <= s.Cfg.L402.MaxCostSats
-		}
+		amountSat := parseMPPAmount(resp)
+		result.InvoiceAmountSat = amountSat
+		result.WithinBudget = amountSat <= s.Cfg.L402.MaxCostSats
 	}
 
 	return result, nil
@@ -263,4 +244,31 @@ func (s *Service) Close() {
 	if s.EventStore != nil {
 		_ = s.EventStore.Close()
 	}
+}
+
+// parseMPPAmount extracts the invoice amount in satoshis from an MPP
+// Payment challenge response. It tries the request's amount field
+// first, then falls back to parsing the BOLT11 HRP.
+func parseMPPAmount(resp *http.Response) int64 {
+	challenge, err := mpp.FindPaymentChallenge(resp)
+	if err != nil || challenge.Request == nil {
+		return 0
+	}
+
+	if challenge.Request.Amount != "" {
+		parsed, err := strconv.ParseInt(
+			challenge.Request.Amount, 10, 64,
+		)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+
+	if challenge.Request.MethodDetails != nil {
+		return l402.ParseInvoiceAmountSat(
+			challenge.Request.MethodDetails.Invoice,
+		)
+	}
+
+	return 0
 }

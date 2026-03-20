@@ -67,7 +67,7 @@ type ChargePayload struct {
 // value for a charge intent credential. It echoes the challenge
 // parameters and includes the payment preimage as proof.
 //
-// The returned string is: "Payment <base64url-encoded JSON>"
+// The returned string is: "Payment <base64url-encoded JSON>".
 func BuildChargeCredential(challenge *Challenge,
 	preimage string) (string, error) {
 
