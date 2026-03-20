@@ -4,14 +4,25 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/lightninglabs/lnget/l402"
 )
+
+// ErrPaymentExceedsMax is returned when an L402 invoice amount exceeds
+// the configured maximum cost. Callers can check for this with
+// errors.Is to distinguish "too expensive" from other payment failures.
+var ErrPaymentExceedsMax = errors.New("invoice exceeds maximum cost")
+
+// ErrL402PaymentFailed is returned when an L402 payment fails for any
+// reason other than exceeding the max cost (e.g. no route, timeout).
+var ErrL402PaymentFailed = errors.New("L402 payment failed")
 
 // EventEnricher is the interface for enriching payment events with HTTP
 // response metadata after a successful retry. Implementations that also
@@ -23,6 +34,17 @@ type EventEnricher interface {
 	EnrichEvent(ctx context.Context, id int64, url, method,
 		contentType string, responseSize int64,
 		statusCode int) error
+}
+
+// PaymentInfo records the amount and fee from the most recent L402
+// payment made by the transport. This is read by the CLI layer to
+// populate DownloadResult fields.
+type PaymentInfo struct {
+	// AmountSat is the invoice amount paid in satoshis.
+	AmountSat int64
+
+	// FeeSat is the routing fee paid in satoshis.
+	FeeSat int64
 }
 
 // L402Transport is an http.RoundTripper that handles L402 payment challenges.
@@ -38,6 +60,10 @@ type L402Transport struct {
 	// EventLogger is the optional event logger for enriching payment
 	// events with HTTP response metadata.
 	EventLogger l402.EventLogger
+
+	// lastPayment stores the result of the most recent L402 payment.
+	// Read by the CLI to populate DownloadResult.
+	lastPayment atomic.Pointer[PaymentInfo]
 
 	// domainLocks provides per-domain locking to allow concurrent requests
 	// to different domains while serializing requests to the same domain.
@@ -210,10 +236,16 @@ func (t *L402Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Payment failed: %v\n", err)
 
-		return nil, fmt.Errorf("L402 payment failed: %w", err)
+		return nil, classifyPaymentError(err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Payment complete, retrying request...\n")
+
+	// Record the payment info for DownloadResult population.
+	t.lastPayment.Store(&PaymentInfo{
+		AmountSat: int64(token.AmountPaid) / 1000,
+		FeeSat:    int64(token.RoutingFeePaid) / 1000,
+	})
 
 	// Retry the request with the paid token, mirroring the server's
 	// prefix choice.
@@ -328,6 +360,25 @@ func bufferRequestBody(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// LastPayment returns the result of the most recent L402 payment, or
+// nil if no payment has been made during this transport's lifetime.
+func (t *L402Transport) LastPayment() *PaymentInfo {
+	return t.lastPayment.Load()
+}
+
+// classifyPaymentError inspects a HandleChallenge error and wraps it
+// with the appropriate sentinel so callers can use errors.Is to
+// distinguish "too expensive" from general payment failures.
+func classifyPaymentError(err error) error {
+	// Use typed sentinel from the l402 handler rather than
+	// fragile string matching.
+	if errors.Is(err, l402.ErrInvoiceExceedsMax) {
+		return fmt.Errorf("%w: %w", ErrPaymentExceedsMax, err)
+	}
+
+	return fmt.Errorf("%w: %w", ErrL402PaymentFailed, err)
 }
 
 // WrappedTransport returns a transport that wraps an existing one with L402

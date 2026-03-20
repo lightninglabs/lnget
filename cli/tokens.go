@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/lightninglabs/lnget/client"
 	"github.com/lightninglabs/lnget/config"
@@ -29,7 +30,13 @@ func NewTokensCmd() *cobra.Command {
 
 // newTokensListCmd creates the tokens list subcommand.
 func newTokensListCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		fields string
+		limit  int
+		ndjson bool
+	)
+
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all cached tokens",
 		Long:  "Display all cached L402 tokens organized by domain.",
@@ -51,7 +58,12 @@ func newTokensListCmd() *cobra.Command {
 			}
 
 			if len(tokens) == 0 {
+				if isJSONOutput(cmd) {
+					return writeJSON(cmd.OutOrStdout(), []any{})
+				}
+
 				fmt.Println("No tokens stored.")
+
 				return nil
 			}
 
@@ -70,16 +82,59 @@ func newTokensListCmd() *cobra.Command {
 				infos = append(infos, info)
 			}
 
+			// Apply limit if set.
+			if limit > 0 && limit < len(infos) {
+				infos = infos[:limit]
+			}
+
+			// Parse field mask.
+			var fieldList []string
+			if fields != "" {
+				fieldList = strings.Split(fields, ",")
+			}
+
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
+			if isJSONOutput(cmd) {
+				w := cmd.OutOrStdout()
 
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
+				// NDJSON mode: one JSON object per line.
+				if ndjson {
+					encoder := json.NewEncoder(w)
+					for _, info := range infos {
+						filtered, err := filterFields(
+							info, fieldList,
+						)
+						if err != nil {
+							return err
+						}
 
-				return encoder.Encode(infos)
+						if err := encoder.Encode(filtered); err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}
+
+				// Standard JSON array with optional field
+				// filtering.
+				if len(fieldList) > 0 {
+					var filtered []any
+					for _, info := range infos {
+						f, err := filterFields(
+							info, fieldList,
+						)
+						if err != nil {
+							return err
+						}
+
+						filtered = append(filtered, f)
+					}
+
+					return writeJSON(w, filtered)
+				}
+
+				return writeJSON(w, infos)
 			}
 
 			// Human-readable output.
@@ -99,6 +154,15 @@ func newTokensListCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&fields, "fields", "",
+		"Comma-separated list of fields to include in JSON output")
+	cmd.Flags().IntVar(&limit, "limit", 0,
+		"Maximum number of tokens to return (0 = unlimited)")
+	cmd.Flags().BoolVar(&ndjson, "ndjson", false,
+		"Output one JSON object per line (newline-delimited JSON)")
+
+	return cmd
 }
 
 // newTokensShowCmd creates the tokens show subcommand.
@@ -110,6 +174,10 @@ func newTokensShowCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain := args[0]
+
+			if err := validateDomain(domain); err != nil {
+				return err
+			}
 
 			cfg, err := config.LoadConfig(flags.configFile)
 			if err != nil {
@@ -138,15 +206,8 @@ func newTokensShowCmd() *cobra.Command {
 			}
 
 			// Output based on format.
-			jsonOutput := flags.jsonOutput ||
-				(!flags.humanOutput &&
-					cfg.Output.Format == config.OutputFormatJSON)
-
-			if jsonOutput {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-
-				return encoder.Encode(info)
+			if isJSONOutput(cmd) {
+				return writeJSON(cmd.OutOrStdout(), info)
 			}
 
 			// Human-readable output.
@@ -176,6 +237,10 @@ func newTokensRemoveCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain := args[0]
+
+			if err := validateDomain(domain); err != nil {
+				return err
+			}
 
 			cfg, err := config.LoadConfig(flags.configFile)
 			if err != nil {
@@ -231,6 +296,17 @@ func newTokensClearCmd() *cobra.Command {
 			}
 
 			if !force {
+				// In non-TTY mode (agent/pipe), require
+				// --force to prevent hanging on an
+				// interactive prompt agents can't respond
+				// to.
+				if !isTTY() {
+					return ErrInvalidArgsf(
+						"--force required in " +
+							"non-interactive mode",
+					)
+				}
+
 				fmt.Printf("This will remove %d token(s). Continue? [y/N] ",
 					len(domains))
 

@@ -3,8 +3,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -79,6 +84,15 @@ var flags struct {
 
 	// Allow insecure connections.
 	insecure bool
+
+	// JSON request parameters (agent-first input).
+	params string
+
+	// Dry-run mode (preview without executing).
+	dryRun bool
+
+	// Print response body inline in JSON output.
+	printBody bool
 }
 
 // NewRootCmd creates the main lnget command.
@@ -91,23 +105,37 @@ transparently. When a server returns a 402 Payment Required response with an
 L402 challenge, lnget automatically pays the invoice and retries the request.
 
 Tokens are cached per-domain, so subsequent requests to the same domain reuse
-the existing token without additional payments.`,
-		Example: `  # Download a file
+the existing token without additional payments.
+
+Agent-friendly: use --json for structured output, --dry-run to preview payments,
+--print-body to embed response content in JSON, and --params for JSON input.
+Run 'lnget schema --all' for full machine-readable CLI introspection.`,
+		Example: `  # Download a file (saves to filename from URL)
   lnget https://api.example.com/data.json
 
-  # Download with output file
-  lnget -o output.json https://api.example.com/data.json
+  # JSON metadata + inline response body
+  lnget --json --print-body https://api.example.com/data.json
 
-  # Pipe to stdout for agent consumption
+  # Pipe response body to stdout
   lnget -q https://api.example.com/data.json | jq .
+  lnget -o - https://api.example.com/data.json
+
+  # Preview payment without spending (dry-run)
+  lnget --dry-run https://api.example.com/paid-endpoint
+
+  # Agent-first: JSON input + output
+  lnget --json --params '{"url": "https://api.example.com/data", "max_cost": 500}'
 
   # Set max payment amount (in sats)
   lnget --max-cost 1000 https://api.example.com/expensive-data
 
   # Resume interrupted download
-  lnget -c https://api.example.com/large-file.zip`,
+  lnget -c https://api.example.com/large-file.zip
+
+  # Introspect CLI schema for agents
+  lnget schema --all`,
 		Version: build.Version(),
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.RangeArgs(0, 1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initLogging()
 		},
@@ -144,10 +172,10 @@ the existing token without additional payments.`,
 	cmd.Flags().BoolVar(&flags.noPay, "no-pay", false,
 		"Don't pay invoices automatically")
 
-	// Output format flags.
-	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false,
+	// Output format flags — persistent so subcommands inherit them.
+	cmd.PersistentFlags().BoolVar(&flags.jsonOutput, "json", false,
 		"Force JSON output")
-	cmd.Flags().BoolVar(&flags.humanOutput, "human", false,
+	cmd.PersistentFlags().BoolVar(&flags.humanOutput, "human", false,
 		"Force human-readable output")
 	cmd.Flags().BoolVarP(&flags.verbose, "verbose", "v", false,
 		"Verbose output")
@@ -165,23 +193,153 @@ the existing token without additional payments.`,
 	cmd.Flags().BoolVarP(&flags.insecure, "insecure", "k", false,
 		"Allow insecure TLS connections")
 
+	// Agent-first JSON input.
+	cmd.Flags().StringVar(&flags.params, "params", "",
+		"JSON request parameters (overrides individual flags)")
+
+	// Dry-run mode.
+	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false,
+		"Preview the request without downloading or paying")
+
+	// Print body in JSON output.
+	cmd.Flags().BoolVar(&flags.printBody, "print-body", false,
+		"Include response body in JSON output (text only, <=1MB)")
+
+	// Override the version template to support JSON output.
+	cmd.SetVersionTemplate(`{{with .Name}}{{printf "%s " .}}{{end}}{{printf "%s\n" .Version}}`)
+
 	// Add subcommands.
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewTokensCmd())
 	cmd.AddCommand(NewLNCmd())
 	cmd.AddCommand(NewServeCmd())
+	cmd.AddCommand(NewSchemaCmd())
+	cmd.AddCommand(NewMCPCmd())
+	cmd.AddCommand(newVersionJSONCmd())
 
 	return cmd
 }
 
-// runGet executes the main download command.
-func runGet(cmd *cobra.Command, args []string) error {
-	url := args[0]
+// newVersionJSONCmd creates a version subcommand that always emits
+// JSON, complementing the built-in --version flag.
+func newVersionJSONCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "version",
+		Short:  "Show version information as JSON",
+		Long:   "Display version, commit, and Go version as JSON.",
+		Hidden: false,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isJSONOutput(cmd) {
+				return writeJSON(os.Stdout, build.VersionInfo())
+			}
 
-	// Load configuration.
+			fmt.Println(build.Version())
+
+			return nil
+		},
+	}
+}
+
+// RequestParams is the JSON structure accepted by --params for
+// agent-first request specification. When --params is set, its fields
+// override individual CLI flags.
+type RequestParams struct {
+	// URL is the target URL.
+	URL string `json:"url"`
+
+	// Method is the HTTP method (default: GET).
+	Method string `json:"method,omitempty"`
+
+	// Headers is a map of custom request headers.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Data is the request body for POST/PUT.
+	Data string `json:"data,omitempty"`
+
+	// Output is the output file path.
+	Output string `json:"output,omitempty"`
+
+	// MaxCost is the maximum invoice amount in satoshis.
+	MaxCost *int64 `json:"max_cost,omitempty"`
+
+	// MaxFee is the maximum routing fee in satoshis.
+	MaxFee *int64 `json:"max_fee,omitempty"`
+}
+
+// resolveURL extracts the target URL from --params JSON or positional
+// args. If --params is set, its fields are applied to the global flags
+// struct as side effects.
+func resolveURL(args []string) (string, error) {
+	var url string
+
+	if flags.params != "" {
+		var params RequestParams
+
+		err := json.Unmarshal([]byte(flags.params), &params)
+		if err != nil {
+			return "", ErrInvalidArgsf(
+				"invalid --params JSON: %v", err,
+			)
+		}
+
+		// Apply params fields to flags.
+		if params.URL != "" {
+			url = params.URL
+		}
+
+		if params.Method != "" {
+			flags.method = params.Method
+		}
+
+		if params.Data != "" {
+			flags.data = params.Data
+		}
+
+		if params.Output != "" {
+			flags.output = params.Output
+		}
+
+		if params.MaxCost != nil {
+			flags.maxCost = *params.MaxCost
+		}
+
+		if params.MaxFee != nil {
+			flags.maxFee = *params.MaxFee
+		}
+
+		// Convert headers map to slice.
+		for k, v := range params.Headers {
+			flags.headers = append(flags.headers, k+": "+v)
+		}
+	}
+
+	// If URL wasn't in --params, use positional arg.
+	if url == "" && len(args) > 0 {
+		url = args[0]
+	}
+
+	if url == "" {
+		return "", ErrInvalidArgsf(
+			"URL required (as argument or in --params)",
+		)
+	}
+
+	// Validate the URL against common hallucination patterns.
+	if err := validateURL(url); err != nil {
+		return "", err
+	}
+
+	return url, nil
+}
+
+// runGet executes the main download command.
+// loadConfigWithOverrides loads the config file and applies CLI flag
+// overrides. Only flags explicitly set by the user override config
+// file values.
+func loadConfigWithOverrides(cmd *cobra.Command) (*config.Config, error) {
 	cfg, err := config.LoadConfig(flags.configFile)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Apply flag overrides — only when explicitly set by the user.
@@ -221,14 +379,24 @@ func runGet(cmd *cobra.Command, args []string) error {
 		cfg.HTTP.MaxRedirects = flags.maxRedirects
 	}
 
-	// Validate configuration.
-	err = cfg.Validate()
-	if err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Ensure directories exist.
-	err = config.EnsureDirectories(cfg)
+	if err := config.EnsureDirectories(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+func runGet(cmd *cobra.Command, args []string) error {
+	url, err := resolveURL(args)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadConfigWithOverrides(cmd)
 	if err != nil {
 		return err
 	}
@@ -237,6 +405,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 	store, err := l402.NewFileStore(cfg.Tokens.Dir)
 	if err != nil {
 		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Dry-run mode: preview the request without downloading or paying.
+	if flags.dryRun {
+		return runDryRun(url, flags.output, store, cfg)
 	}
 
 	// Create the Lightning backend. If the backend fails to initialize
@@ -304,19 +477,58 @@ func runGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Support "-o -" to write response body to stdout (like wget).
+	if outputPath == "-" {
+		resp, err := httpClient.Get(ctx, url)
+		if err != nil {
+			return classifyError(err)
+		}
+
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		_, err = io.Copy(os.Stdout, resp.Body)
+
+		return err
+	}
+
+	// Validate the output path against traversal attacks.
+	if outputPath != "" {
+		outputPath, err = validateOutputPath(outputPath)
+		if err != nil {
+			return err
+		}
+	}
+
 	// If outputting to a file, use download mode.
 	if outputPath != "" {
 		progress := client.NewProgress(flags.quiet || flags.noProgress)
 
-		err = httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
+		result, err := httpClient.Download(ctx, url, outputPath, &client.DownloadOptions{
 			Resume:   flags.resume,
 			Progress: progress,
 		})
 		if err != nil {
-			return err
+			return classifyError(err)
 		}
 
 		progress.Finish()
+
+		// When --print-body is set, read back the downloaded
+		// file and embed its content in the JSON result. Only
+		// text content types under 1MB are included.
+		if flags.printBody {
+			result.Body = readBodyForEmbed(
+				outputPath, result.ContentType,
+				result.Size,
+			)
+		}
+
+		// Emit structured JSON result when --json is active.
+		if isJSONOutput(cmd) {
+			return writeJSON(os.Stdout, result)
+		}
 
 		if !flags.quiet {
 			fmt.Fprintf(os.Stderr, "Downloaded to: %s\n", outputPath)
@@ -328,7 +540,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Quiet mode: output to stdout.
 	resp, err := httpClient.Get(ctx, url)
 	if err != nil {
-		return err
+		return classifyError(err)
 	}
 
 	defer func() {
@@ -402,6 +614,157 @@ func createBackend(cfg *config.Config) (ln.Backend, error) {
 	default:
 		return nil, fmt.Errorf("unknown LN backend mode: %s", cfg.LN.Mode)
 	}
+}
+
+// runDryRun performs a dry-run preview of a download request. It
+// checks the token cache, makes a HEAD request to detect 402
+// challenges, and reports what would happen without actually paying
+// or downloading.
+//
+//nolint:whitespace,wsl_v5
+func runDryRun(url, outputPath string, store l402.Store,
+	cfg *config.Config) error {
+
+	parsedURL, err := neturl.Parse(url)
+	if err != nil {
+		return ErrInvalidArgsf("failed to parse URL: %v", err)
+	}
+
+	domain := l402.DomainFromURL(parsedURL)
+
+	result := client.DryRunResult{
+		DryRun:      true,
+		URL:         url,
+		OutputPath:  outputPath,
+		MaxCostSats: cfg.L402.MaxCostSats,
+	}
+
+	// Check if we already have a valid token.
+	token, err := store.GetToken(domain)
+	if err == nil && token != nil {
+		result.HasCachedToken = !l402.IsPending(token)
+	}
+
+	// Make a HEAD request to check if the server requires L402.
+	headReq, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HEAD request: %w", err)
+	}
+
+	headReq.Header.Set("User-Agent", cfg.HTTP.UserAgent)
+
+	httpClient := &http.Client{Timeout: cfg.HTTP.Timeout}
+
+	resp, err := httpClient.Do(headReq)
+	if err != nil {
+		// Network errors are not fatal for dry-run; report them.
+		result.RequiresL402 = false
+
+		_ = writeJSON(os.Stdout, result)
+
+		return ErrDryRunPassedNew()
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	// Check if the server returned a 402 with L402 challenge.
+	if l402.IsL402Challenge(resp) {
+		result.RequiresL402 = true
+
+		// Try to parse the invoice amount from the challenge.
+		authHeader := resp.Header.Get("WWW-Authenticate")
+		challenge, parseErr := l402.ParseChallenge(authHeader)
+		if parseErr == nil {
+			result.InvoiceAmountSat = challenge.InvoiceAmount
+			result.WithinBudget = challenge.InvoiceAmount <= cfg.L402.MaxCostSats
+		}
+	}
+
+	_ = writeJSON(os.Stdout, result)
+
+	return ErrDryRunPassedNew()
+}
+
+// classifyError inspects an error from the HTTP client or download
+// path and wraps it with the appropriate CLIError for semantic exit
+// codes. Network errors get exit code 4, payment errors get 3, and
+// everything else gets the default general error.
+func classifyError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check for L402 payment sentinel errors from the transport.
+	if errors.Is(err, client.ErrPaymentExceedsMax) {
+		return WrapCLIError(
+			ExitInvalidArgs, "payment_too_expensive", err,
+		)
+	}
+
+	if errors.Is(err, client.ErrL402PaymentFailed) {
+		return ErrPaymentFailedWrap(err)
+	}
+
+	// Check for network-level errors (DNS, connection, timeout).
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return ErrNetworkErrorWrap(err)
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return ErrNetworkErrorWrap(err)
+	}
+
+	return err
+}
+
+// maxPrintBodySize is the maximum response body size that will be
+// embedded in JSON output when --print-body is used.
+const maxPrintBodySize int64 = 1 << 20 // 1MB
+
+// readBodyForEmbed reads the downloaded file back and returns its
+// content as a string for embedding in JSON output. Only text content
+// types under maxPrintBodySize are returned; binary or oversized
+// responses return an empty string.
+func readBodyForEmbed(path, contentType string, size int64) string {
+	if size > maxPrintBodySize {
+		return ""
+	}
+
+	// Only embed text-like content types.
+	if !isTextContentType(contentType) {
+		return ""
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
+}
+
+// isTextContentType returns true if the content type indicates text
+// content that is safe to embed as a JSON string.
+func isTextContentType(ct string) bool {
+	textPrefixes := []string{
+		"text/",
+		"application/json",
+		"application/xml",
+		"application/javascript",
+		"application/x-www-form-urlencoded",
+	}
+
+	for _, prefix := range textPrefixes {
+		if len(ct) >= len(prefix) && ct[:len(prefix)] == prefix {
+			return true
+		}
+	}
+
+	return false
 }
 
 // initLogging sets up file-based logging. Logs are always written to

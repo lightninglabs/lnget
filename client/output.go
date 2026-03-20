@@ -93,8 +93,45 @@ type DownloadResult struct {
 	// L402FeeSat is the routing fee paid in satoshis.
 	L402FeeSat int64 `json:"l402_fee_sat,omitempty"`
 
-	// Duration is how long the request took.
+	// Duration is how long the request took (human-readable).
 	Duration string `json:"duration"`
+
+	// DurationMs is the request duration in milliseconds for
+	// machine-readable consumption.
+	DurationMs int64 `json:"duration_ms"`
+
+	// Body is the response body content, included when
+	// --print-body is set. Only populated for text content types
+	// under the size limit.
+	Body string `json:"body,omitempty"`
+}
+
+// DryRunResult represents the result of a --dry-run invocation. It
+// previews what would happen without making any payments or downloads.
+type DryRunResult struct {
+	// DryRun is always true, identifying this as a preview.
+	DryRun bool `json:"dry_run"`
+
+	// URL is the target URL.
+	URL string `json:"url"`
+
+	// OutputPath is where the file would be saved.
+	OutputPath string `json:"output_path,omitempty"`
+
+	// HasCachedToken indicates if a valid token exists for the domain.
+	HasCachedToken bool `json:"has_cached_token"`
+
+	// RequiresL402 indicates if the server responded with 402.
+	RequiresL402 bool `json:"requires_l402"`
+
+	// InvoiceAmountSat is the invoice amount from the 402 challenge.
+	InvoiceAmountSat int64 `json:"invoice_amount_sat,omitempty"`
+
+	// WithinBudget indicates if the invoice is within --max-cost.
+	WithinBudget bool `json:"within_budget,omitempty"`
+
+	// MaxCostSats is the configured maximum cost.
+	MaxCostSats int64 `json:"max_cost_sats"`
 }
 
 // TokenInfo represents information about a stored token.
