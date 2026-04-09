@@ -74,6 +74,17 @@ func (s *Store) RecordEvent(ctx context.Context, e *Event) (int64, error) {
 
 	e.ID = id
 
+	// Emit event for Observer Protocol integration
+	emit("agent.payment_recorded", map[string]any{
+	    "source":      "lnget",
+	    "event_id":    id,
+	    "domain":      e.Domain,
+	    "payment_hash": e.PaymentHash,
+	    "amount_sat":  e.AmountSat,
+	    "status":      e.Status,
+	    "timestamp":   e.CreatedAt.UTC().Format(time.RFC3339),
+	})
+	
 	return id, nil
 }
 
