@@ -483,6 +483,57 @@ func TestParseAuthPrefix(t *testing.T) {
 	}
 }
 
+// TestSetHeaderUsesBaseMacaroon verifies that SetHeader sends the original
+// macaroon as issued by the server, not the one returned by PaidMacaroon().
+// PaidMacaroon() appends a preimage caveat (LSAT-era behavior) that extends
+// the HMAC chain and produces a macaroon the server never issued. The L402
+// spec requires the original macaroon unchanged; the preimage is the
+// separate second credential after the colon.
+func TestSetHeaderUsesBaseMacaroon(t *testing.T) {
+	token := makePaidToken(t)
+
+	// Capture the original macaroon bytes before calling SetHeader so we
+	// can compare them against what actually ends up in the header.
+	originalMac := token.BaseMacaroon()
+
+	originalBytes, err := originalMac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal original macaroon: %v", err)
+	}
+
+	header := make(http.Header)
+
+	err = SetHeader(&header, token, AuthPrefixL402)
+	if err != nil {
+		t.Fatalf("SetHeader() error = %v", err)
+	}
+
+	// Extract the base64 macaroon from "L402 <mac>:<preimage>".
+	authValue := header.Get(HeaderAuthorization)
+
+	creds := authValue[len("L402 "):]
+
+	parts := strings.SplitN(creds, ":", 2)
+	if len(parts) != 2 {
+		t.Fatalf("expected <mac>:<preimage>, got %q", creds)
+	}
+
+	macBytes, err := base64.StdEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("failed to decode base64 macaroon from header: %v",
+			err)
+	}
+
+	// The macaroon in the header must be byte-identical to the original.
+	// If PaidMacaroon() was used instead, it would have an extra caveat
+	// and a different HMAC, so the lengths and bytes would differ.
+	if !bytes.Equal(macBytes, originalBytes) {
+		t.Errorf("SetHeader sent a modified macaroon: got %d bytes, "+
+			"want %d bytes (preimage caveat was likely appended)",
+			len(macBytes), len(originalBytes))
+	}
+}
+
 // TestSetHeaderPendingTokenFails verifies that SetHeader rejects pending
 // (unpaid) tokens.
 func TestSetHeaderPendingTokenFails(t *testing.T) {
