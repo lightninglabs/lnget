@@ -146,12 +146,16 @@ func SetHeader(header *http.Header, token *Token, prefix AuthPrefix) error {
 		return fmt.Errorf("cannot set header with pending token")
 	}
 
-	mac, err := token.PaidMacaroon()
-	if err != nil {
-		return fmt.Errorf("failed to get paid macaroon: %w", err)
-	}
+	// Use the base macaroon as issued by the server. The L402 spec
+	// requires the macaroon to be sent unchanged; the preimage is the
+	// separate second credential after the colon. PaidMacaroon() is
+	// correct for the gRPC path (where the preimage must travel as a
+	// caveat because it has no separate field), but wrong here — it
+	// extends the HMAC chain and produces a macaroon the server never
+	// issued and will reject.
+	mac := token.BaseMacaroon()
 
-	err = l402.SetHeader(header, mac, token.Preimage)
+	err := l402.SetHeader(header, mac, token.Preimage)
 	if err != nil {
 		return err
 	}
