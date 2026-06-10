@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/lnget/client"
+	"github.com/lightninglabs/lnget/discovery"
 	"github.com/lightninglabs/lnget/events"
 	"github.com/lightninglabs/lnget/service"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -170,6 +171,48 @@ func registerTools(server *gomcp.Server, svc *service.Service) {
 
 		return nil, &configResult{Config: raw}, nil
 	})
+
+	// Discover tool.
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name: "discover",
+		Description: "Fetch a provider's L402 discovery manifest to learn " +
+			"its services, prices, and caveat vocabulary without paying",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest,
+		args discoverArgs) (*gomcp.CallToolResult, *discovery.Manifest,
+		error) {
+
+		manifest, err := svc.Discover(ctx, args.URL)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, manifest, nil
+	})
+
+	// Quote tool.
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name: "quote",
+		Description: "Request a priced, ready-to-pay L402 challenge for a " +
+			"bundle, verified before it is returned",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest,
+		args quoteArgs) (*gomcp.CallToolResult, *service.QuoteResult,
+		error) {
+
+		quoteReq := &discovery.QuoteRequest{
+			Service:      args.Service,
+			Capabilities: args.Capabilities,
+			Constraints:  args.Constraints,
+			MaxPriceMsat: args.MaxPriceMsat,
+			Optimize:     args.Optimize,
+		}
+
+		result, err := svc.Quote(ctx, args.URL, quoteReq, !args.NoVerify)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, result, nil
+	})
 }
 
 // Tool input types.
@@ -187,6 +230,22 @@ type dryRunArgs struct {
 
 // emptyArgs is used for tools with no parameters.
 type emptyArgs struct{}
+
+// discoverArgs are the input parameters for the discover tool.
+type discoverArgs struct {
+	URL string `json:"url" jsonschema:"required,the URL of the L402 provider to discover"`
+}
+
+// quoteArgs are the input parameters for the quote tool.
+type quoteArgs struct {
+	URL          string                 `json:"url" jsonschema:"required,the URL of the L402 provider"`
+	Service      string                 `json:"service" jsonschema:"required,the service to quote"`
+	Capabilities []string               `json:"capabilities,omitempty" jsonschema:"capabilities to request"`
+	Constraints  map[string]interface{} `json:"constraints,omitempty" jsonschema:"constraint values keyed by condition"`
+	MaxPriceMsat int64                  `json:"max_price_msat,omitempty" jsonschema:"budget ceiling in millisatoshis"`
+	Optimize     string                 `json:"optimize,omitempty" jsonschema:"negotiation hint: price, volume, or duration"`
+	NoVerify     bool                   `json:"no_verify,omitempty" jsonschema:"skip pre-pay verification of the returned challenge"`
+}
 
 // domainArgs are the input parameters for domain-specific tools.
 type domainArgs struct {
