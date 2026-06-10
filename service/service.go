@@ -13,6 +13,7 @@ import (
 
 	"github.com/lightninglabs/lnget/client"
 	"github.com/lightninglabs/lnget/config"
+	"github.com/lightninglabs/lnget/discovery"
 	"github.com/lightninglabs/lnget/events"
 	"github.com/lightninglabs/lnget/l402"
 	"github.com/lightninglabs/lnget/ln"
@@ -233,6 +234,115 @@ func (s *Service) Download(ctx context.Context, rawURL, outputPath string,
 		Resume:   resume,
 		Progress: progress,
 	})
+}
+
+// QuoteResult is the outcome of a quote request, including the optional
+// pre-pay verification.
+type QuoteResult struct {
+	// Quote is the quote returned by the provider.
+	Quote *discovery.QuoteResponse `json:"quote"`
+
+	// Provider is the manifest provider the quote came from.
+	Provider discovery.Provider `json:"provider"`
+
+	// PriceSat is the quoted price in satoshis, for convenience.
+	PriceSat int64 `json:"price_sat"`
+
+	// Verified reports whether the returned challenge passed pre-pay
+	// verification (macaroon binds to invoice, encodes the bundle, fits the
+	// budget, and pays the expected node).
+	Verified bool `json:"verified"`
+
+	// VerifyError, if non-empty, is why verification failed.
+	VerifyError string `json:"verify_error,omitempty"`
+}
+
+// Discover fetches and parses the L402 discovery manifest for the given URL.
+// It returns discovery.ErrNoManifest if the provider exposes none, so the
+// caller can fall back to the reactive 402 flow.
+func (s *Service) Discover(ctx context.Context, rawURL string) (
+	*discovery.Manifest, error) {
+
+	if s.HTTPClient == nil {
+		return nil, fmt.Errorf("HTTP client not initialized")
+	}
+
+	return discovery.FetchManifest(ctx, s.doFunc(), rawURL)
+}
+
+// Quote requests a quote for a bundle from the provider serving rawURL. It
+// resolves the quote endpoint from the manifest, posts the request, and (when
+// verify is set) runs the full pre-pay verification using the client's
+// configured max cost and the provider's advertised node pubkey.
+func (s *Service) Quote(ctx context.Context, rawURL string,
+	req *discovery.QuoteRequest, verify bool) (*QuoteResult, error) {
+
+	if s.HTTPClient == nil {
+		return nil, fmt.Errorf("HTTP client not initialized")
+	}
+
+	manifest, err := s.Discover(ctx, rawURL)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.QuoteEndpoint == "" {
+		return nil, fmt.Errorf("provider does not offer a quote endpoint")
+	}
+
+	quoteURL, err := resolveURL(rawURL, manifest.QuoteEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := discovery.RequestQuote(ctx, s.doFunc(), quoteURL, req)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &QuoteResult{
+		Quote:    resp,
+		Provider: manifest.Provider,
+		PriceSat: resp.PriceMsat / 1000,
+	}
+
+	if verify {
+		verr := discovery.VerifyQuote(resp, req, discovery.VerifyOptions{
+			MaxCostSat: s.Cfg.L402.MaxCostSats,
+			NodePubKey: manifest.Provider.NodePubKey,
+		})
+		result.Verified = verr == nil
+		if verr != nil {
+			result.VerifyError = verr.Error()
+		}
+	}
+
+	return result, nil
+}
+
+// doFunc adapts the payment-aware HTTP client to the discovery package's
+// request function, unwrapping the client.Response.
+func (s *Service) doFunc() discovery.DoFunc {
+	return func(req *http.Request) (*http.Response, error) {
+		resp, err := s.HTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		return resp.Response, nil
+	}
+}
+
+// resolveURL resolves a (possibly relative) endpoint against a base URL,
+// keeping the base scheme and host.
+func resolveURL(base, endpoint string) (string, error) {
+	b, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %w", err)
+	}
+	ref, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid endpoint: %w", err)
+	}
+	return b.ResolveReference(ref).String(), nil
 }
 
 // Close cleans up service resources.
