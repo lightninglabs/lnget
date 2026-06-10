@@ -246,6 +246,7 @@ Run 'lnget schema --all' for full machine-readable CLI introspection.`,
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewTokensCmd())
 	cmd.AddCommand(NewLNCmd())
+	cmd.AddCommand(NewDiscoverCmd())
 	cmd.AddCommand(NewServeCmd())
 	cmd.AddCommand(NewSchemaCmd())
 	cmd.AddCommand(NewMCPCmd())
