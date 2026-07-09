@@ -30,17 +30,17 @@ lnget https://api.example.com/data/2
 
 ## Installation
 
-```bash
-go install github.com/lightninglabs/lnget/cmd/lnget@latest
-```
-
-Or build from source:
+Build from source:
 
 ```bash
 git clone https://github.com/lightninglabs/lnget.git
 cd lnget
 make install
 ```
+
+Note: `go install github.com/lightninglabs/lnget/cmd/lnget@latest` currently
+fails because `go.mod` contains `replace` directives, which `go install`
+does not honor for remote installs. Building from a clone works around this.
 
 ## Configuration
 

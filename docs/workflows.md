@@ -264,8 +264,19 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Install lnget
-        run: go install github.com/lightninglabs/lnget/cmd/lnget@latest
+      - name: Checkout lnget
+        uses: actions/checkout@v4
+        with:
+          repository: lightninglabs/lnget
+          path: lnget
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: lnget/go.mod
+      - name: Build lnget
+        run: |
+          cd lnget
+          go build -o /usr/local/bin/lnget ./cmd/lnget
 
       - name: Configure lnget
         run: |
@@ -290,8 +301,11 @@ jobs:
 ### Docker usage
 
 ```dockerfile
-FROM golang:1.22-alpine AS builder
-RUN go install github.com/lightninglabs/lnget/cmd/lnget@latest
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+RUN apk add --no-cache git
+RUN git clone https://github.com/lightninglabs/lnget.git .
+RUN go build -o /go/bin/lnget ./cmd/lnget
 
 FROM alpine:latest
 COPY --from=builder /go/bin/lnget /usr/local/bin/

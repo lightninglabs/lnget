@@ -34,12 +34,13 @@ additional payments.
 ## Installation
 
 ```bash
-# From source
-go install github.com/lightninglabs/lnget/cmd/lnget@latest
-
-# Or build locally
+# Build locally
 make install
 ```
+
+Note: `go install github.com/lightninglabs/lnget/cmd/lnget@latest` currently
+fails because `go.mod` contains `replace` directives, which `go install`
+does not honor for remote installs. Building from a clone works around this.
 
 ## Quick Reference
 
